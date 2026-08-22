@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SysSandbox - Concept-to-System Simulation Sandbox</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="logo">
+                <span class="logo-icon">⚡</span>
+                <h2>SysSandbox</h2>
+            </div>
+            <nav class="nav-menu">
+                <button class="nav-btn active" data-tab="os-tab">
+                    <span class="btn-icon">💻</span> OS Simulator
+                </button>
+                <button class="nav-btn" data-tab="dbms-tab">
+                    <span class="btn-icon">🗄️</span> DBMS Simulator
+                </button>
+                <button class="nav-btn" data-tab="concurrency-tab">
+                    <span class="btn-icon">🔒</span> Lock Manager
+                </button>
+                <button class="nav-btn" data-tab="lab-tab">
+                    <span class="btn-icon">🎓</span> Faculty Labs
+                </button>
+            </nav>
+            <div class="connection-status">
+                <div class="status-dot disconnected" id="ws-dot"></div>
+                <span id="ws-text">Telemetry Off</span>
+                <button class="conn-btn" id="ws-toggle-btn">Connect</button>
+            </div>
+        </aside>
+
+        <!-- Main Body -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="main-header">
+                <div class="header-title">
+                    <h1 id="tab-title">OS Simulation Sandbox</h1>
+                    <p id="tab-subtitle">Deterministic process scheduling, context switches, & virtual page tables</p>
+                </div>
+                <div class="chaos-quick-triggers">
+                    <button class="chaos-pill" id="chaos-latency-btn" data-chaos="disk_latency_spike">⚡ Latency Spike</button>
+                    <button class="chaos-pill" id="chaos-thrash-btn" data-chaos="thrashing">💾 Thrashing</button>
+                    <button class="chaos-pill" id="chaos-deplete-btn" data-chaos="connection_depletion">🌐 Pool Deplete</button>
+                    <button class="reset-pill" id="chaos-reset-btn">Reset</button>
+                </div>
+            </header>
+
+            <!-- Dashboard Grid -->
+            <div class="dashboard-grid">
+                
+                <!-- Left Column: Controls and Configurations -->
+                <section class="config-panel card">
+                    
+                    <!-- OS Controls -->
+                    <div class="tab-content" id="os-tab">
+                        <h3>Scheduling & Memory Settings</h3>
+                        <div class="form-group">
+                            <label>Algorithm</label>
+                            <select id="os-algo">
+                                <option value="Round Robin">Round Robin</option>
+                                <option value="FCFS">FCFS (First-Come First-Served)</option>
+                                <option value="Priority">Priority (Non-Preemptive)</option>
+                                <option value="MLFQ">Multi-Level Feedback Queue</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Time Quantum</label>
+                                <input type="number" id="os-quantum" value="2.0" step="0.5" min="0.5">
+                            </div>
+                            <div class="form-group">
+                                <label>Context Switch Cost</label>
+                                <input type="number" id="os-overhead" value="0.1" step="0.05" min="0">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>RAM Size (MB)</label>
+                                <input type="number" id="os-ram" value="16" min="4" max="128">
+                            </div>
+                            <div class="form-group">
+                                <label>Page Policy</label>
+                                <select id="os-policy">
+                                    <option value="LRU">LRU</option>
+                                    <option value="FIFO">FIFO</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="process-editor-section">
+                            <div class="editor-header">
+                                <h4>Active Processes</h4>
+                                <button class="btn-sm" id="add-proc-btn">+ Add</button>
+                            </div>
+                            <div class="process-table-container">
+                                <table class="config-table" id="process-config-table">
+                                    <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Burst</th>
+                                            <th>Arrival</th>
+                                            <th>Pri</th>
+                                            <th>Pages Seq</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <!-- Dynamic Rows -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <button class="btn-primary" id="run-os-btn">Simulate System Execution</button>
+                    </div>
+
+                    <!-- DBMS Controls -->
+                    <div class="tab-content hidden" id="dbms-tab">
+                        <h3>Database Execution Parameters</h3>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Storage Class</label>
+                                <select id="dbms-storage">
+                                    <option value="SSD">SSD (Flash Storage)</option>
+                                    <option value="HDD">HDD (Spinning Disk)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Index Structure</label>
+                                <select id="dbms-index">
+                                    <option value="B-Tree">B-Tree Indexing</option>
+                                    <option value="Linear Scan">Full Table Scan</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Block Size (Bytes)</label>
+                                <input type="number" id="dbms-block" value="4096" step="512">
+                            </div>
+                            <div class="form-group">
+                                <label>Pool Conn Size</label>
+                                <input type="number" id="dbms-pool" value="10" min="1">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Buffer Cache Size</label>
+                                <input type="number" id="dbms-buffer" value="100" min="10">
+                            </div>
+                        </div>
+
+                        <h3 style="margin-top: 1.5rem;">Query Profile</h3>
+                        <div class="form-group">
+                            <label>Query Profile Type</label>
+                            <select id="dbms-qtype">
+                                <option value="point">Point Lookup (SELECT * WHERE ID = X)</option>
+                                <option value="range">Range Query (SELECT * WHERE ID BETWEEN X AND Y)</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Total Dataset Size (Rows)</label>
+                                <input type="number" id="dbms-rows" value="100000" step="10000">
+                            </div>
+                            <div class="form-group">
+                                <label>Range Size (%)</label>
+                                <input type="number" id="dbms-range-pct" value="10" min="1" max="100">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Concurrent Users (Load Depth)</label>
+                            <input type="number" id="dbms-concurrent" value="1" min="1">
+                        </div>
+                        <button class="btn-primary" id="run-dbms-btn">Execute Load Simulation</button>
+                    </div>
+
+                    <!-- Concurrency Lock Manager Controls -->
+                    <div class="tab-content hidden" id="concurrency-tab">
+                        <h3>Interactive Lock Manager</h3>
+                        <p class="section-desc">Acquire shared (S) or exclusive (X) locks on database resources. Build transaction cycles to trigger deadlocks.</p>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Transaction ID</label>
+                                <input type="text" id="lock-tx" value="T1" placeholder="e.g. T1">
+                            </div>
+                            <div class="form-group">
+                                <label>Resource ID</label>
+                                <input type="text" id="lock-res" value="R1" placeholder="e.g. R1">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Lock Lock Mode</label>
+                            <select id="lock-mode">
+                                <option value="S">Shared (Read lock)</option>
+                                <option value="X">Exclusive (Write lock)</option>
+                            </select>
+                        </div>
+                        <div class="btn-group">
+                            <button class="btn-primary" id="lock-acquire-btn" style="flex: 2;">Request Lock</button>
+                            <button class="btn-danger" id="lock-release-btn" style="flex: 1;">Release</button>
+                        </div>
+                        <button class="btn-secondary" id="lock-clear-btn" style="margin-top: 1rem; width: 100%;">Clear Lock Manager</button>
+                    </div>
+
+                    <!-- Faculty Labs -->
+                    <div class="tab-content hidden" id="lab-tab">
+                        <h3>Laboratory Sandbox Presets</h3>
+                        <div class="form-group">
+                            <label>Select Lab Preset</label>
+                            <select id="lab-preset-select">
+                                <option value="">-- Select Lab Preset --</option>
+                                <option value="thrashing_lab">Lab 1: Memory Thrashing Investigation</option>
+                                <option value="scheduling_overhead_lab">Lab 2: CPU Quantum Overhead Optimization</option>
+                                <option value="deadlock_lab">Lab 3: Transaction Deadlock Cycles</option>
+                            </select>
+                        </div>
+                        <div class="lab-instructions card hidden" id="lab-instructions-panel">
+                            <h4 id="lab-title-text">Lab Title</h4>
+                            <p id="lab-desc-text" class="section-desc">Instructions...</p>
+                            <h5>Grading Assertions:</h5>
+                            <ul class="assertion-list" id="lab-assertions-list">
+                                <!-- Dynamic List -->
+                            </ul>
+                        </div>
+                        <button class="btn-primary hidden" id="lab-submit-btn">Validate Lab Submission</button>
+                    </div>
+
+                </section>
+
+                <!-- Right Column: Visualizer & Live Dials -->
+                <div class="visualization-column">
+                    
+                    <!-- Live Telemetry Panel -->
+                    <section class="telemetry-panel card">
+                        <h3>Live Telemetry Feed</h3>
+                        <div class="dials-row">
+                            <div class="dial-container">
+                                <canvas class="dial-canvas" id="cpu-dial" width="120" height="120"></canvas>
+                                <div class="dial-value" id="cpu-val">10%</div>
+                                <div class="dial-label">CPU Saturation</div>
+                            </div>
+                            <div class="dial-container">
+                                <canvas class="dial-canvas" id="mem-dial" width="120" height="120"></canvas>
+                                <div class="dial-value" id="mem-val">20%</div>
+                                <div class="dial-label">Memory Page Pressure</div>
+                            </div>
+                            <div class="dial-container">
+                                <canvas class="dial-canvas" id="lat-dial" width="120" height="120"></canvas>
+                                <div class="dial-value" id="lat-val">2ms</div>
+                                <div class="dial-label">Access Latency</div>
+                            </div>
+                        </div>
+                        <div class="telemetry-footer" id="chaos-banner" style="display: none;">
+                            <span class="warning-text" id="chaos-banner-text">CHAOS INJECTED: Memory Thrashing active.</span>
+                        </div>
+                    </section>
+
+                    <!-- Active Visualization Panel -->
+                    <section class="visualizer-panel card">
+                        <div class="vis-header">
+                            <h3>Simulation Results Viewer</h3>
+                            <div class="badge hidden" id="thrashing-badge">THRASHING ACTIVE</div>
+                        </div>
+
+                        <!-- OS Visualization Output -->
+                        <div class="vis-content" id="os-vis">
+                            <div class="gantt-section">
+                                <h4>Gantt Timeline Chart</h4>
+                                <div class="gantt-chart-container" id="gantt-chart-div">
+                                    <div class="gantt-empty">Run simulator to render timeline</div>
+                                </div>
+                                <div class="gantt-legend" id="gantt-legend-div" style="display:none;">
+                                    <div class="legend-item"><span class="legend-color cs-color"></span> Overhead</div>
+                                    <div class="legend-item"><span class="legend-color idle-color"></span> Idle</div>
+                                </div>
+                            </div>
+                            
+                            <div class="memory-paging-section" style="margin-top: 1.5rem;">
+                                <h4>Physical Frame Allocation Table</h4>
+                                <div class="paging-summary-row">
+                                    <div>Page Faults: <strong id="pg-faults-val">0</strong></div>
+                                    <div>Fault Rate: <strong id="pg-rate-val">0.0%</strong></div>
+                                </div>
+                                <div class="frames-grid" id="frames-grid-div">
+                                    <!-- Dynamic frame boxes -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- DBMS Visualization Output -->
+                        <div class="vis-content hidden" id="dbms-vis">
+                            <div class="dbms-metrics-row">
+                                <div class="metric-card">
+                                    <span class="metric-num" id="dbms-lat-val">0ms</span>
+                                    <span class="metric-label">Estimated Latency</span>
+                                </div>
+                                <div class="metric-card">
+                                    <span class="metric-num" id="dbms-iops-val">0</span>
+                                    <span class="metric-label">Disk IOPS</span>
+                                </div>
+                                <div class="metric-card">
+                                    <span class="metric-num" id="dbms-hit-val">0%</span>
+                                    <span class="metric-label">Cache Hit Ratio</span>
+                                </div>
+                                <div class="metric-card">
+                                    <span class="metric-num" id="dbms-hops-val">0</span>
+                                    <span class="metric-label">Index Node Hops</span>
+                                </div>
+                            </div>
+                            <div class="query-tree-section" style="margin-top: 1.5rem;">
+                                <h4>Query Index Traversal Path Comparison</h4>
+                                <div class="traversal-comparison">
+                                    <div class="traversal-col">
+                                        <h5>B-Tree point lookup path</h5>
+                                        <div class="tree-visual" id="btree-path-visual">
+                                            <!-- Dynamic Nodes -->
+                                        </div>
+                                    </div>
+                                    <div class="traversal-col">
+                                        <h5>Linear blocks read comparison</h5>
+                                        <div class="linear-visual" id="linear-blocks-visual">
+                                            <!-- Dynamic blocks -->
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Lock Concurrency Output -->
+                        <div class="vis-content hidden" id="concurrency-vis">
+                            <div class="badge badge-danger hidden" id="deadlock-badge">DEADLOCK DETECTED!</div>
+                            
+                            <div class="lock-grid">
+                                <div class="lock-col">
+                                    <h4>Active Lock Table</h4>
+                                    <table class="config-table" id="lock-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Resource</th>
+                                                <th>Transaction(s)</th>
+                                                <th>Mode</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr><td colspan="3" class="table-empty">No locks held</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="lock-col">
+                                    <h4>Transaction Wait Queue</h4>
+                                    <table class="config-table" id="wait-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Transaction</th>
+                                                <th>Waiting for Resource</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr><td colspan="2" class="table-empty">No transactions waiting</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <div class="deadlock-graph-section" style="margin-top: 1.5rem;">
+                                <h4>Wait-For Graph Cycle Visualizer</h4>
+                                <div class="deadlock-graph-canvas" id="deadlock-graph-div">
+                                    <div class="graph-empty">No deadlock dependencies active</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Lab Validation Output -->
+                        <div class="vis-content hidden" id="lab-vis">
+                            <div class="lab-result-panel card" id="lab-result-div" style="display:none;">
+                                <h3 id="lab-pass-fail-banner">Lab Submission Status</h3>
+                                <div class="grading-summary" id="lab-failed-details">
+                                    <!-- Failing reasons -->
+                                </div>
+                            </div>
+                        </div>
+
+                    </section>
+
+                    <!-- Real-Time Diagnostic Console -->
+                    <section class="diagnostic-panel card">
+                        <h3>Diagnostic Root-Cause Engine</h3>
+                        <div class="console-box" id="diagnostic-console">
+                            [Console Initialized] System normal. Awaiting telemetry spikes or simulation errors...
+                        </div>
+                    </section>
+
+                </div>
+
+            </div>
+        </main>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
