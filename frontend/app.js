@@ -67,6 +67,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initTabs();
     initProcessTable();
     initTelemetryDials();
+    initVisualizer();
     
     // Bind Event Listeners
     document.getElementById("add-proc-btn").addEventListener("click", addProcessRow);
@@ -400,6 +401,10 @@ function initTabs() {
                 document.getElementById("concurrency-vis").classList.remove("hidden");
                 document.getElementById("tab-title").innerText = "Concurrency & Lock Engine";
                 document.getElementById("tab-subtitle").innerText = "Trace exclusive and shared row lock contentions and cycle deadlock detection";
+            } else if (tabId === "visualizer-tab") {
+                document.getElementById("visualizer-vis").classList.remove("hidden");
+                document.getElementById("tab-title").innerText = "Multi-Modal Concept Visualizer";
+                document.getElementById("tab-subtitle").innerText = "Ingest source materials to generate interactive flowcharts & curated video tutorials";
             } else if (tabId === "lab-tab") {
                 document.getElementById("lab-vis").classList.remove("hidden");
                 document.getElementById("tab-title").innerText = "Faculty Lab Configurations";
@@ -467,6 +472,8 @@ async function loadStudentContent() {
             if (c.type === "lab") {
                 actionBtn = `<button class="btn-primary btn-sm" style="margin-top:0.5rem;" onclick="loadCustomTeacherLab(${c.id}, '${escapeQuote(c.payload)}')">🔬 Load Lab Simulator</button>`;
             }
+
+            let analyzeBtn = `<button class="btn-sm tool-btn-accent" style="margin-top:0.35rem; display:inline-flex; align-items:center; gap:0.25rem;" onclick="analyzeContentInVisualizer(${c.id})">🗺️ Analyze Flowchart & Videos</button>`;
             
             card.innerHTML = `
                 <h4>${c.title}</h4>
@@ -475,8 +482,11 @@ async function loadStudentContent() {
                     <span>Type: <strong style="color:var(--accent-cyan);">${c.type.toUpperCase()}</strong></span>
                     <span>Date: ${new Date(c.created_at).toLocaleDateString()}</span>
                 </div>
-                ${downloadBtn}
-                ${actionBtn}
+                <div style="display:flex; flex-wrap:wrap; gap:0.4rem; margin-top:0.5rem;">
+                    ${downloadBtn}
+                    ${actionBtn}
+                    ${analyzeBtn}
+                </div>
             `;
             list.appendChild(card);
         });
@@ -614,6 +624,9 @@ async function loadTeacherDashboard() {
                         <button class="btn-sm" style="color:var(--accent-red); background:rgba(239,68,68,0.1);" onclick="handleDeleteContent(${i.id})">Delete</button>
                     </div>
                     <p style="font-size:0.8rem; color:var(--text-secondary); margin-top:0.25rem;">Type: ${i.type.toUpperCase()}</p>
+                    <div style="display:flex; gap:0.4rem; margin-top:0.5rem;">
+                        <button class="btn-sm tool-btn-accent" style="display:inline-flex; align-items:center; gap:0.25rem;" onclick="analyzeContentInVisualizer(${i.id})">🗺️ Analyze in Visualizer</button>
+                    </div>
                 `;
                 list.appendChild(el);
             });
@@ -1813,3 +1826,614 @@ function writeConsole(text, type = "info") {
     consoleEl.innerHTML += formatted;
     consoleEl.scrollTop = consoleEl.scrollHeight;
 }
+
+// ====================================================
+// MULTI-MODAL CONCEPT VISUALIZER & VIDEO CURATION
+// ====================================================
+
+let selectedVisualizerFile = null;
+let currentMermaidSyntax = "";
+let zoomScale = 1.0;
+let panX = 0;
+let panY = 0;
+let isPanning = false;
+let startPanX = 0;
+let startPanY = 0;
+
+function initVisualizer() {
+    // 1. Initialize Mermaid.js
+    if (typeof mermaid !== "undefined") {
+        mermaid.initialize({
+            startOnLoad: false,
+            theme: "dark",
+            securityLevel: "loose",
+            flowchart: { useMaxWidth: false, htmlLabels: true, curve: "basis" }
+        });
+    }
+
+    const dropzone = document.getElementById("visualizer-dropzone");
+    const fileInput = document.getElementById("visualizer-file-input");
+    const fileBadge = document.getElementById("visualizer-file-badge");
+    const removeFileBtn = document.getElementById("visualizer-remove-file-btn");
+    const clearTextBtn = document.getElementById("visualizer-clear-text-btn");
+    const generateBtn = document.getElementById("visualizer-generate-btn");
+
+    // File input & Drag-and-drop
+    if (dropzone && fileInput) {
+        dropzone.addEventListener("click", (e) => {
+            if (e.target.closest("#visualizer-file-badge") || e.target.closest("#visualizer-remove-file-btn")) return;
+            fileInput.click();
+        });
+
+        fileInput.addEventListener("change", (e) => {
+            if (e.target.files && e.target.files[0]) {
+                handleVisualizerFileSelect(e.target.files[0]);
+            }
+        });
+
+        dropzone.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            dropzone.classList.add("dragover");
+        });
+
+        dropzone.addEventListener("dragleave", () => {
+            dropzone.classList.remove("dragover");
+        });
+
+        dropzone.addEventListener("drop", (e) => {
+            e.preventDefault();
+            dropzone.classList.remove("dragover");
+            if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                handleVisualizerFileSelect(e.dataTransfer.files[0]);
+            }
+        });
+    }
+
+    if (removeFileBtn) {
+        removeFileBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            selectedVisualizerFile = null;
+            if (fileInput) fileInput.value = "";
+            if (fileBadge) fileBadge.classList.add("hidden");
+        });
+    }
+
+    if (clearTextBtn) {
+        clearTextBtn.addEventListener("click", () => {
+            document.getElementById("visualizer-raw-text").value = "";
+        });
+    }
+
+    // Quick Sample Presets
+    document.querySelectorAll(".preset-pill[data-preset]").forEach(btn => {
+        btn.addEventListener("click", () => {
+            loadVisualizerPreset(btn.dataset.preset);
+        });
+    });
+
+    // Generate Button
+    if (generateBtn) {
+        generateBtn.addEventListener("click", handleGenerateVisuals);
+    }
+
+    // Pan & Zoom Controls
+    setupDiagramInteractions();
+
+    // Export SVG & Copy Code buttons
+    const exportSvgBtn = document.getElementById("diagram-export-svg-btn");
+    if (exportSvgBtn) {
+        exportSvgBtn.addEventListener("click", handleExportSVG);
+    }
+
+    const copyCodeBtn = document.getElementById("diagram-copy-code-btn");
+    if (copyCodeBtn) {
+        copyCodeBtn.addEventListener("click", handleCopyMermaidCode);
+    }
+
+    // Video Modal Close
+    const modalCloseBtn = document.getElementById("video-modal-close-btn");
+    const modalOverlay = document.getElementById("video-modal-overlay");
+    if (modalCloseBtn && modalOverlay) {
+        modalCloseBtn.addEventListener("click", closeVideoModal);
+        modalOverlay.addEventListener("click", (e) => {
+            if (e.target === modalOverlay) closeVideoModal();
+        });
+    }
+}
+
+function handleVisualizerFileSelect(file) {
+    const validExtensions = ["pdf", "txt", "md"];
+    const ext = file.name.split(".").pop().toLowerCase();
+    
+    if (!validExtensions.includes(ext)) {
+        showVisualizerStatus(`Invalid file format .${ext}. Please upload a .pdf, .txt, or .md file.`, "error");
+        return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+        showVisualizerStatus("File size exceeds 10MB limit.", "error");
+        return;
+    }
+
+    selectedVisualizerFile = file;
+    const fileBadge = document.getElementById("visualizer-file-badge");
+    const fileNameSpan = document.getElementById("visualizer-file-name");
+    
+    if (fileNameSpan && fileBadge) {
+        const sizeKB = (file.size / 1024).toFixed(1);
+        fileNameSpan.innerText = `📄 ${file.name} (${sizeKB} KB)`;
+        fileBadge.classList.remove("hidden");
+    }
+
+    // Auto-fill title if empty
+    const titleInput = document.getElementById("visualizer-title-input");
+    if (titleInput && !titleInput.value.trim()) {
+        const baseName = file.name.rsplit ? file.name.rsplit(".", 1)[0] : file.name.split(".").slice(0, -1).join(".");
+        titleInput.value = baseName.replace(/[_\-]/g, " ").replace(/\b\w/g, l => l.toUpperCase());
+    }
+
+    showVisualizerStatus(`Loaded "${file.name}". Click 'Generate Flowchart & Video References' to analyze.`, "success");
+}
+
+function loadVisualizerPreset(presetKey) {
+    const rawTextArea = document.getElementById("visualizer-raw-text");
+    const titleInput = document.getElementById("visualizer-title-input");
+    const focusSelect = document.getElementById("visualizer-focus-topic");
+
+    if (presetKey === "vm") {
+        if (titleInput) titleInput.value = "Virtual Memory, Paging & Page Replacement Policy";
+        if (focusSelect) focusSelect.value = "Virtual Memory";
+        if (rawTextArea) rawTextArea.value = `# Operating Systems: Virtual Memory & Paging Architecture
+
+Virtual memory decouples the programmer's logical address space from physical RAM frames.
+1. CPU executes an instruction referencing a Virtual Address (VPN + Offset).
+2. Hardware MMU checks Translation Lookaside Buffer (TLB) for fast cached page translation.
+3. On TLB Hit, physical Frame Number (PFN) is computed and accessed in sub-nanosecond time.
+4. On TLB Miss, OS page table entry is inspected for valid/present bit status.
+5. If valid bit is 0, CPU traps a Page Fault interrupt to the OS kernel.
+6. The OS invokes page replacement policy (LRU / FIFO) to allocate or evict a victim frame.
+7. Dirty victim frames are written back to swap disk storage; target page is retrieved into RAM.
+8. If page fault rate exceeds thrashing threshold, multiprogramming level is adjusted.`;
+    } else if (presetKey === "btree") {
+        if (titleInput) titleInput.value = "B+ Tree Database Indexing & Buffer Pool Traversal";
+        if (focusSelect) focusSelect.value = "B-Tree";
+        if (rawTextArea) rawTextArea.value = `# Relational DBMS: B+ Tree Index Traversal & Cost Model
+
+B+ Tree index structures optimize logarithmic disk access for high-concurrency database queries.
+1. Query Optimizer evaluates table statistics and selects B+ Tree index scan over full table scan.
+2. Search begins at the Root B+ Tree Page node.
+3. Buffer Pool Cache is evaluated (Cache Hit latency: 0.05ms vs Disk Seek Miss: 8.0ms).
+4. In-memory binary search navigates pivot keys across internal node branches (Levels 1..H).
+5. Search reaches Leaf Level containing contiguous data record pointers (Tuple RIDs).
+6. Target data tuples are retrieved into query buffer and result set is dispatched.`;
+    } else if (presetKey === "deadlock") {
+        if (titleInput) titleInput.value = "Strict Two-Phase Locking (2PL) & Deadlock Detection";
+        if (focusSelect) focusSelect.value = "Two-Phase Locking";
+        if (rawTextArea) rawTextArea.value = `# Concurrency Control: Strict 2PL & Wait-For Graph Deadlocks
+
+Strict Two-Phase Locking (2PL) guarantees conflict serializability and ACID transaction isolation.
+1. Transaction Tx requests Shared (S) or Exclusive (X) lock on resource from Lock Manager.
+2. If resource is unheld or compatible, lock is granted and registered in Active Lock Table.
+3. On lock conflict (X-lock contention), Tx is enqueued into Resource Wait Queue.
+4. Wait-For Graph (WFG) is updated with directed dependency edge Tx1 -> Tx2.
+5. Real-time cycle detection analyzes WFG: if a cycle exists, deadlock cycle is confirmed.
+6. Deadlock engine selects a victim transaction, rolls back modifications, and retries with exponential backoff.
+7. Successful transactions write WAL commit records and release held locks in shrinking phase.`;
+    } else if (presetKey === "scheduling") {
+        if (titleInput) titleInput.value = "CPU Scheduling Algorithms & Context Switches";
+        if (focusSelect) focusSelect.value = "CPU Scheduling";
+        if (rawTextArea) rawTextArea.value = `# Operating Systems: CPU Scheduling & Context Switches
+
+CPU dispatchers schedule ready processes while minimizing turnaround time and context switch overhead.
+1. Newly arrived processes are enqueued into Ready Queue with Process Control Block (PCB).
+2. CPU scheduler selects highest priority process according to algorithm (Round Robin / Priority / MLFQ).
+3. Context switch handler saves CPU registers of preempted process and restores state of scheduled process.
+4. Process executes during its allocated Time Quantum.
+5. If quantum expires, timer interrupt preempts process back into lower priority Ready Queue.
+6. If I/O system call occurs, process transitions to Blocked Wait Queue until interrupt fires.
+7. Upon execution termination, memory frames and PID are reclaimed.`;
+    }
+
+    showVisualizerStatus(`Loaded "${presetKey.toUpperCase()}" concept preset. Click Generate to build visual flowchart!`, "success");
+}
+
+async function handleGenerateVisuals() {
+    const rawText = document.getElementById("visualizer-raw-text").value.trim();
+    const title = document.getElementById("visualizer-title-input").value.trim();
+    const focusTopic = document.getElementById("visualizer-focus-topic").value;
+    const generateBtn = document.getElementById("visualizer-generate-btn");
+
+    if (!selectedVisualizerFile && !rawText) {
+        showVisualizerStatus("Please upload a source file (.pdf, .txt, .md) or paste text notes.", "error");
+        return;
+    }
+
+    const formData = new FormData();
+    if (selectedVisualizerFile) {
+        formData.append("file", selectedVisualizerFile);
+    }
+    if (rawText) {
+        formData.append("raw_text", rawText);
+    }
+    if (title) {
+        formData.append("title", title);
+    }
+    if (focusTopic && focusTopic !== "none") {
+        formData.append("focus_topic", focusTopic);
+    }
+
+    try {
+        generateBtn.disabled = true;
+        generateBtn.innerHTML = `<span>⏳ Extracting Concepts & Generating Flowchart...</span>`;
+        showVisualizerStatus("Parsing document structure, extracting key concepts, and generating visual topology...", "info");
+
+        const res = await fetch(`${API_URL}/content/extract-visuals`, {
+            method: "POST",
+            body: formData,
+            credentials: "include"
+        });
+
+        if (!res.ok) {
+            const errData = await res.json().catch(() => ({ detail: "Extraction failed." }));
+            throw new Error(errData.detail || `Server returned status ${res.status}`);
+        }
+
+        const data = await res.json();
+        renderVisualizerResults(data);
+        showVisualizerStatus("Flowchart and curated video references generated successfully!", "success");
+        writeConsole(`Visual extraction complete: generated Mermaid topology and discovered ${data.video_references.length} video lectures for "${data.title}"`);
+    } catch (err) {
+        console.error("Visual extraction error:", err);
+        showVisualizerStatus(`Generation Error: ${err.message}`, "error");
+        writeConsole(`Visualizer extraction failed: ${err.message}`, "error");
+    } finally {
+        generateBtn.disabled = false;
+        generateBtn.innerHTML = `<span>⚡ Generate Flowchart & Video References</span>`;
+    }
+}
+
+async function renderVisualizerResults(data) {
+    // 1. Ensure visualizer-vis is visible
+    const visPanel = document.getElementById("visualizer-vis");
+    if (visPanel) visPanel.classList.remove("hidden");
+
+    // Update diagram rendered title
+    const renderedTitle = document.getElementById("diagram-rendered-title");
+    if (renderedTitle) renderedTitle.innerText = data.title || "Concept Topology Flowchart";
+
+    const typeBadge = document.getElementById("diagram-type-badge");
+    if (typeBadge) typeBadge.innerText = (data.diagram && data.diagram.diagram_type) ? data.diagram.diagram_type.toUpperCase() : "MERMAID FLOWCHART";
+
+    // 2. Render Mermaid.js flowchart
+    currentMermaidSyntax = data.diagram ? data.diagram.mermaid_syntax : "";
+    const mermaidOutput = document.getElementById("mermaid-output");
+    const placeholder = document.getElementById("diagram-placeholder");
+
+    if (currentMermaidSyntax && mermaidOutput) {
+        if (placeholder) placeholder.style.display = "none";
+        mermaidOutput.innerHTML = `<div style="color:var(--text-secondary); font-size:0.85rem;">Rendering diagram topology...</div>`;
+
+        try {
+            const renderId = "mermaid-svg-" + Date.now();
+            const { svg } = await mermaid.render(renderId, currentMermaidSyntax);
+            mermaidOutput.innerHTML = svg;
+            
+            // Reset pan/zoom
+            zoomScale = 1.0;
+            panX = 0;
+            panY = 0;
+            applyCanvasTransform();
+        } catch (mErr) {
+            console.error("Mermaid rendering error:", mErr);
+            mermaidOutput.innerHTML = `
+                <div style="text-align:center; padding:1.5rem; color:var(--accent-amber);">
+                    <h4>Diagram Topology Notice</h4>
+                    <p style="font-size:0.85rem; margin-top:0.35rem;">Mermaid syntax rendered with raw format:</p>
+                    <pre style="text-align:left; background:rgba(0,0,0,0.5); padding:1rem; border-radius:6px; font-size:0.75rem; max-height:200px; overflow:auto;">${escapeQuote(currentMermaidSyntax)}</pre>
+                </div>
+            `;
+        }
+    }
+
+    // 3. Render Key Concept Badges
+    const conceptChipsContainer = document.getElementById("visualizer-concept-chips");
+    const breakdownContainer = document.getElementById("visualizer-breakdown-list");
+    const conceptSection = document.getElementById("concept-breakdown-section");
+
+    if (conceptSection) conceptSection.style.display = "block";
+
+    if (conceptChipsContainer) {
+        conceptChipsContainer.innerHTML = "";
+        const concepts = data.key_concepts || [];
+        if (concepts.length > 0) {
+            concepts.forEach(c => {
+                const chip = document.createElement("span");
+                chip.className = "concept-chip";
+                chip.innerText = c;
+                conceptChipsContainer.appendChild(chip);
+            });
+        } else {
+            conceptChipsContainer.innerHTML = `<span style="font-size:0.8rem; color:var(--text-secondary);">No individual keywords extracted.</span>`;
+        }
+    }
+
+    // 4. Render Step Breakdown
+    if (breakdownContainer) {
+        breakdownContainer.innerHTML = "";
+        const steps = (data.diagram && data.diagram.nodes_breakdown && data.diagram.nodes_breakdown.length > 0)
+            ? data.diagram.nodes_breakdown
+            : (data.processes || []);
+            
+        if (steps.length > 0) {
+            steps.forEach((st, idx) => {
+                const bItem = document.createElement("div");
+                bItem.className = "breakdown-item";
+                bItem.innerHTML = `<strong>Step ${idx + 1}:</strong> ${st}`;
+                breakdownContainer.appendChild(bItem);
+            });
+        } else {
+            breakdownContainer.innerHTML = `<div class="breakdown-item">Standard multi-phase execution workflow.</div>`;
+        }
+    }
+
+    // 5. Render Curated Video Cards
+    const videoGrid = document.getElementById("visualizer-video-grid");
+    if (videoGrid) {
+        videoGrid.innerHTML = "";
+        const videos = data.video_references || [];
+        
+        if (videos.length === 0) {
+            videoGrid.innerHTML = `<div class="table-empty" style="grid-column: 1 / -1; padding: 2rem 1rem;">No specific video lectures mapped for this topic.</div>`;
+        } else {
+            videos.forEach(v => {
+                const vCard = document.createElement("div");
+                vCard.className = "video-card";
+                
+                const safeTitle = escapeQuote(v.title || "Video Tutorial");
+                const safeTopic = escapeQuote(v.topic || "Core Concept");
+                const safeDesc = escapeQuote(v.description || "");
+                const safeEmbedUrl = v.embed_url || "";
+                const safeWatchUrl = v.url || "#";
+                
+                vCard.innerHTML = `
+                    <div>
+                        <div class="video-card-header">
+                            <span class="video-topic-badge">${v.topic}</span>
+                            <span class="badge" style="background:rgba(239,68,68,0.2); color:#fca5a5; font-size:0.65rem;">YouTube</span>
+                        </div>
+                        <div class="video-channel-tag">📺 ${v.channel || "Curated Educational Channel"}</div>
+                        <h4 class="video-card-title">${v.title}</h4>
+                        <p class="video-card-desc">${v.description}</p>
+                        ${v.timestamp_notes ? `<div class="video-timestamp-note">⏱️ ${v.timestamp_notes}</div>` : ''}
+                    </div>
+                    <div class="video-card-footer">
+                        <a href="${safeWatchUrl}" target="_blank" rel="noopener noreferrer" class="btn-watch-yt">▶ Watch on YouTube</a>
+                        <button class="btn-preview-video" onclick="openVideoModal('${safeTitle}', '${safeTopic}', '${safeDesc}', '${safeEmbedUrl}', '${safeWatchUrl}')">🎥 Preview</button>
+                    </div>
+                `;
+                videoGrid.appendChild(vCard);
+            });
+        }
+    }
+
+    // 6. Render Extracted Sections if present
+    const sectionsAccordion = document.getElementById("sections-accordion-container");
+    const sectionsList = document.getElementById("visualizer-sections-list");
+    if (sectionsAccordion && sectionsList) {
+        if (data.extracted_sections && data.extracted_sections.length > 0) {
+            sectionsAccordion.style.display = "block";
+            sectionsList.innerHTML = "";
+            data.extracted_sections.forEach(sec => {
+                const sCard = document.createElement("div");
+                sCard.className = "section-item-card";
+                sCard.innerHTML = `
+                    <h5>${sec.heading}</h5>
+                    <p>${sec.content}</p>
+                `;
+                sectionsList.appendChild(sCard);
+            });
+        } else {
+            sectionsAccordion.style.display = "none";
+        }
+    }
+}
+
+// ----------------------------------------------------
+// Pan & Zoom Interactive Controls
+// ----------------------------------------------------
+function setupDiagramInteractions() {
+    const viewport = document.getElementById("diagram-viewport");
+    const canvas = document.getElementById("diagram-canvas");
+    const zoomInBtn = document.getElementById("diagram-zoom-in-btn");
+    const zoomOutBtn = document.getElementById("diagram-zoom-out-btn");
+    const zoomResetBtn = document.getElementById("diagram-zoom-reset-btn");
+    const fullscreenBtn = document.getElementById("diagram-fullscreen-btn");
+
+    if (zoomInBtn) {
+        zoomInBtn.addEventListener("click", () => {
+            zoomScale = Math.min(zoomScale + 0.2, 3.5);
+            applyCanvasTransform();
+        });
+    }
+
+    if (zoomOutBtn) {
+        zoomOutBtn.addEventListener("click", () => {
+            zoomScale = Math.max(zoomScale - 0.2, 0.35);
+            applyCanvasTransform();
+        });
+    }
+
+    if (zoomResetBtn) {
+        zoomResetBtn.addEventListener("click", () => {
+            zoomScale = 1.0;
+            panX = 0;
+            panY = 0;
+            applyCanvasTransform();
+        });
+    }
+
+    if (fullscreenBtn && viewport) {
+        fullscreenBtn.addEventListener("click", () => {
+            viewport.classList.toggle("fullscreen");
+            fullscreenBtn.innerText = viewport.classList.contains("fullscreen") ? "⛶ Exit Fullscreen" : "⛶";
+        });
+    }
+
+    if (viewport && canvas) {
+        // Mouse Wheel Zoom
+        viewport.addEventListener("wheel", (e) => {
+            e.preventDefault();
+            const delta = e.deltaY < 0 ? 0.1 : -0.1;
+            zoomScale = Math.min(Math.max(zoomScale + delta, 0.35), 3.5);
+            applyCanvasTransform();
+        }, { passive: false });
+
+        // Mouse Drag Panning
+        viewport.addEventListener("mousedown", (e) => {
+            if (e.target.closest("button") || e.target.closest("a")) return;
+            isPanning = true;
+            startPanX = e.clientX - panX;
+            startPanY = e.clientY - panY;
+            viewport.style.cursor = "grabbing";
+        });
+
+        window.addEventListener("mousemove", (e) => {
+            if (!isPanning) return;
+            panX = e.clientX - startPanX;
+            panY = e.clientY - startPanY;
+            applyCanvasTransform();
+        });
+
+        window.addEventListener("mouseup", () => {
+            if (isPanning) {
+                isPanning = false;
+                viewport.style.cursor = "grab";
+            }
+        });
+    }
+}
+
+function applyCanvasTransform() {
+    const canvas = document.getElementById("diagram-canvas");
+    if (canvas) {
+        canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomScale})`;
+    }
+}
+
+function handleExportSVG() {
+    const svgEl = document.querySelector("#mermaid-output svg");
+    if (!svgEl) {
+        alert("No rendered diagram found to export. Please generate a flowchart first!");
+        return;
+    }
+
+    const serializer = new XMLSerializer();
+    let svgSource = serializer.serializeToString(svgEl);
+
+    // Ensure xml namespace
+    if (!svgSource.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
+        svgSource = svgSource.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+    }
+
+    const blob = new Blob([svgSource], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const downloadLink = document.createElement("a");
+    downloadLink.href = url;
+    downloadLink.download = "mentorvee_concept_flowchart.svg";
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
+    URL.revokeObjectURL(url);
+    
+    writeConsole("Exported interactive SVG diagram to file.");
+}
+
+function handleCopyMermaidCode() {
+    if (!currentMermaidSyntax) {
+        alert("No Mermaid syntax available to copy. Generate a flowchart first!");
+        return;
+    }
+
+    navigator.clipboard.writeText(currentMermaidSyntax).then(() => {
+        showVisualizerStatus("Mermaid.js diagram syntax copied to clipboard!", "success");
+        writeConsole("Copied Mermaid flowchart syntax to clipboard.");
+    }).catch(err => {
+        console.error("Clipboard copy error:", err);
+    });
+}
+
+function openVideoModal(title, topic, description, embedUrl, watchUrl) {
+    const modal = document.getElementById("video-modal-overlay");
+    const iframe = document.getElementById("video-modal-iframe");
+    const titleEl = document.getElementById("video-modal-title");
+    const topicEl = document.getElementById("video-modal-topic");
+    const descEl = document.getElementById("video-modal-desc");
+    const extLink = document.getElementById("video-modal-external-link");
+
+    if (titleEl) titleEl.innerText = title;
+    if (topicEl) topicEl.innerText = topic;
+    if (descEl) descEl.innerText = description;
+    if (extLink) extLink.href = watchUrl;
+
+    if (iframe) {
+        iframe.src = embedUrl;
+    }
+
+    if (modal) modal.classList.remove("hidden");
+}
+
+function closeVideoModal() {
+    const modal = document.getElementById("video-modal-overlay");
+    const iframe = document.getElementById("video-modal-iframe");
+    if (iframe) iframe.src = "";
+    if (modal) modal.classList.add("hidden");
+}
+
+function showVisualizerStatus(message, type = "info") {
+    const statusMsg = document.getElementById("visualizer-status-msg");
+    if (!statusMsg) return;
+
+    statusMsg.innerText = message;
+    statusMsg.className = "auth-msg";
+    
+    if (type === "error") {
+        statusMsg.classList.add("error");
+    } else if (type === "success") {
+        statusMsg.classList.add("success");
+    } else {
+        statusMsg.classList.add("info");
+    }
+    
+    statusMsg.classList.remove("hidden");
+}
+
+// Global integration function for Student & Teacher workspace cards
+window.analyzeContentInVisualizer = async function(contentId) {
+    try {
+        // Switch tab to visualizer
+        const visTabBtn = document.querySelector('.nav-btn[data-tab="visualizer-tab"]');
+        if (visTabBtn) visTabBtn.click();
+
+        showVisualizerStatus(`Fetching and analyzing content ID #${contentId}...`, "info");
+        writeConsole(`Analyzing stored course material ID #${contentId} in visualizer...`);
+
+        const res = await fetch(`${API_URL}/content/${contentId}/analyze`, {
+            method: "POST",
+            credentials: "include"
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ detail: "Analysis failed" }));
+            throw new Error(err.detail || "Server error");
+        }
+
+        const data = await res.json();
+        renderVisualizerResults(data);
+        showVisualizerStatus(`Flowchart and video recommendations loaded for "${data.title}"!`, "success");
+    } catch (e) {
+        console.error("Content visualizer analysis failed:", e);
+        showVisualizerStatus(`Failed to analyze content: ${e.message}`, "error");
+    }
+};
+
+window.openVideoModal = openVideoModal;

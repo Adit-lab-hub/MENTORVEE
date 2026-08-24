@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 </head>
 <body>
     <!-- Auth Overlay (landing screen if unauthenticated) -->
@@ -120,6 +121,9 @@
                 </button>
                 <button class="nav-btn" data-tab="concurrency-tab">
                     <span class="btn-icon">🔒</span> Lock Manager
+                </button>
+                <button class="nav-btn" data-tab="visualizer-tab" id="nav-visualizer-btn">
+                    <span class="btn-icon">🗺️</span> Concept Visualizer
                 </button>
                 <button class="nav-btn" data-tab="lab-tab" id="nav-lab-btn">
                     <span class="btn-icon">🎓</span> Faculty Labs
@@ -584,7 +588,70 @@
                         </div>
                     </div>
 
-</section>
+                    <!-- Concept Visualizer Controls Tab -->
+                    <div class="tab-content hidden" id="visualizer-tab">
+                        <h3>Multi-Modal Concept Extraction</h3>
+                        <p class="section-desc">Upload source documents or paste notes to automatically generate interactive flowcharts and curated video tutorial references.</p>
+
+                        <!-- Drag and drop zone -->
+                        <div class="dropzone" id="visualizer-dropzone">
+                            <div class="dropzone-icon">📄</div>
+                            <div class="dropzone-text">
+                                <strong>Drag & drop source material</strong>
+                                <span>or <span class="browse-link">browse files</span> (.pdf, .txt, .md)</span>
+                            </div>
+                            <input type="file" id="visualizer-file-input" accept=".pdf,.txt,.md" style="display: none;">
+                            <div class="file-badge hidden" id="visualizer-file-badge">
+                                <span id="visualizer-file-name">filename.pdf</span>
+                                <button type="button" class="btn-remove-file" id="visualizer-remove-file-btn">✕</button>
+                            </div>
+                        </div>
+
+                        <!-- Quick Sample Presets -->
+                        <div class="presets-section" style="margin: 1rem 0;">
+                            <label style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.35rem; display: block;">Or Load a Concept Preset:</label>
+                            <div class="preset-pills">
+                                <button class="preset-pill" data-preset="vm">⚡ Virtual Memory & Thrashing</button>
+                                <button class="preset-pill" data-preset="btree">🌲 B+ Tree Indexing</button>
+                                <button class="preset-pill" data-preset="deadlock">🔒 2PL & Deadlocks</button>
+                                <button class="preset-pill" data-preset="scheduling">⏱️ CPU Scheduling</button>
+                            </div>
+                        </div>
+
+                        <!-- Direct Note / Raw Text input -->
+                        <div class="form-group">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+                                <label for="visualizer-raw-text">Or Paste Lecture Notes / Document Text</label>
+                                <button type="button" class="btn-text-sm" id="visualizer-clear-text-btn">Clear</button>
+                            </div>
+                            <textarea id="visualizer-raw-text" rows="5" placeholder="Paste chapters, concept summaries, algorithm steps, or notes here..."></textarea>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group" style="flex: 2;">
+                                <label for="visualizer-title-input">Document Title / Topic (Optional)</label>
+                                <input type="text" id="visualizer-title-input" placeholder="e.g. Operating Systems: Paging & TLB">
+                            </div>
+                            <div class="form-group" style="flex: 1.5;">
+                                <label for="visualizer-focus-topic">Focus Concept</label>
+                                <select id="visualizer-focus-topic">
+                                    <option value="none">Auto-Detect Concepts</option>
+                                    <option value="Virtual Memory">Virtual Memory & Paging</option>
+                                    <option value="B-Tree">Database B+ Tree Indexing</option>
+                                    <option value="Two-Phase Locking">2PL & Concurrency</option>
+                                    <option value="CPU Scheduling">CPU Scheduling</option>
+                                    <option value="Semaphore">Process Synchronization</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <button class="btn-primary" id="visualizer-generate-btn" style="margin-top: 0.75rem; width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+                            <span>⚡ Generate Flowchart & Video References</span>
+                        </button>
+                        <div id="visualizer-status-msg" class="auth-msg hidden" style="margin-top: 0.75rem;"></div>
+                    </div>
+
+                </section>
 
                 <!-- Right Column: Visualizer & Live Dials -->
                 <div class="visualization-column">
@@ -730,12 +797,73 @@
                         </div>
 
                         <!-- Lab Validation Output -->
+                        <!-- Lab Validation Output -->
                         <div class="vis-content hidden" id="lab-vis">
                             <div class="lab-result-panel card" id="lab-result-div" style="display:none;">
                                 <h3 id="lab-pass-fail-banner">Lab Submission Status</h3>
                                 <div class="grading-summary" id="lab-failed-details">
                                     <!-- Failing reasons -->
                                 </div>
+                            </div>
+                        </div>
+
+                        <!-- Concept Visualizer Output Panel -->
+                        <div class="vis-content hidden" id="visualizer-vis">
+                            <!-- Diagram Card & Interactive Canvas -->
+                            <div class="diagram-viewer-card">
+                                <div class="diagram-toolbar">
+                                    <div class="diagram-title-info">
+                                        <h4 id="diagram-rendered-title">Concept Flowchart & Systems Topology</h4>
+                                        <span class="badge" id="diagram-type-badge">Mermaid Flowchart</span>
+                                    </div>
+                                    <div class="diagram-actions">
+                                        <button class="tool-btn" id="diagram-zoom-in-btn" title="Zoom In">🔍+</button>
+                                        <button class="tool-btn" id="diagram-zoom-out-btn" title="Zoom Out">🔍-</button>
+                                        <button class="tool-btn" id="diagram-zoom-reset-btn" title="Reset View">⟲ Reset</button>
+                                        <button class="tool-btn" id="diagram-fullscreen-btn" title="Fullscreen View">⛶</button>
+                                        <button class="tool-btn" id="diagram-copy-code-btn" title="Copy Mermaid Syntax">📋 Copy Code</button>
+                                        <button class="tool-btn tool-btn-accent" id="diagram-export-svg-btn" title="Download SVG Diagram">💾 Export SVG</button>
+                                    </div>
+                                </div>
+
+                                <!-- Interactive Diagram Viewport -->
+                                <div class="diagram-viewport" id="diagram-viewport">
+                                    <div class="diagram-canvas" id="diagram-canvas">
+                                        <div class="diagram-placeholder" id="diagram-placeholder">
+                                            <div class="placeholder-icon">🗺️</div>
+                                            <h4>Interactive Visual Flowchart Canvas</h4>
+                                            <p>Upload a PDF/notes document or click a preset on the left to render an interactive architectural flowchart.</p>
+                                        </div>
+                                        <div id="mermaid-output" class="mermaid-output-area"></div>
+                                    </div>
+                                </div>
+
+                                <!-- Key Concept Tags and Steps Drawer -->
+                                <div class="concept-breakdown-section" id="concept-breakdown-section" style="display: none; margin-top: 1rem;">
+                                    <h5 style="margin-bottom: 0.5rem; color: var(--accent-cyan);">Extracted Key Concepts</h5>
+                                    <div class="concept-chips-container" id="visualizer-concept-chips"></div>
+                                    <h5 style="margin-top: 1rem; margin-bottom: 0.5rem; color: var(--accent-cyan);">Procedural Step Breakdown</h5>
+                                    <div class="node-breakdown-list" id="visualizer-breakdown-list"></div>
+                                </div>
+                            </div>
+
+                            <!-- Curated Video References Section -->
+                            <div class="video-curation-section" id="video-curation-section" style="margin-top: 2rem;">
+                                <div class="section-header-row" style="margin-bottom: 1rem;">
+                                    <div>
+                                        <h4>🎓 Curated Video Tutorials & Discovery</h4>
+                                        <p class="section-desc">Authoritative educational video recommendations and high-signal search queries aligned with extracted concepts.</p>
+                                    </div>
+                                </div>
+                                <div class="video-cards-grid" id="visualizer-video-grid">
+                                    <div class="table-empty" style="grid-column: 1 / -1; padding: 2rem 1rem;">No video tutorials loaded yet. Run concept analysis to discover curated lectures.</div>
+                                </div>
+                            </div>
+
+                            <!-- Structured Document Sections Drawer -->
+                            <div class="sections-accordion-container" id="sections-accordion-container" style="margin-top: 2rem; display: none;">
+                                <h4>📑 Extracted Document Hierarchy & Notes</h4>
+                                <div class="sections-list" id="visualizer-sections-list"></div>
                             </div>
                         </div>
 
@@ -754,6 +882,27 @@
             </div>
         </main>
     </div>
+
+    <!-- Video Preview Modal -->
+    <div id="video-modal-overlay" class="modal-overlay hidden">
+        <div class="video-modal-card card">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <span class="badge" id="video-modal-topic">Topic</span>
+                    <h3 id="video-modal-title" style="font-size: 1.1rem; margin-top: 0.25rem;">Video Title</h3>
+                </div>
+                <button class="modal-close-btn" id="video-modal-close-btn">✕</button>
+            </div>
+            <div class="video-iframe-wrapper">
+                <iframe id="video-modal-iframe" src="" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem;">
+                <p id="video-modal-desc" style="font-size: 0.85rem; color: var(--text-secondary); max-width: 70%; margin: 0;"></p>
+                <a href="#" target="_blank" rel="noopener noreferrer" class="btn-primary btn-sm" id="video-modal-external-link" style="text-decoration: none; padding: 0.5rem 1rem;">Watch on YouTube ↗</a>
+            </div>
+        </div>
+    </div>
+
     <script src="app.js"></script>
 </body>
 </html>
