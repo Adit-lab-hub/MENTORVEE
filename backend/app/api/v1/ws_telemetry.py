@@ -1,4 +1,5 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
+from app.core.security import decode_token
 import asyncio
 import json
 from typing import List
@@ -14,7 +15,8 @@ class ConnectionManager:
         self.active_connections.append(websocket)
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
 
     async def send_personal_message(self, message: dict, websocket: WebSocket):
         await websocket.send_json(message)
@@ -23,6 +25,22 @@ manager = ConnectionManager()
 
 @router.websocket("/telemetry")
 async def websocket_endpoint(websocket: WebSocket):
+    # Retrieve and verify cookie token
+    token = websocket.cookies.get("sb-access-token")
+    if not token:
+        # Check query params in case cookie isn't passed (fallback)
+        token = websocket.query_params.get("token")
+        
+    if not token:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+        
+    try:
+        decode_token(token)
+    except Exception:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     await manager.connect(websocket)
     cpu_load = 10.0
     memory_pressure = 20.0

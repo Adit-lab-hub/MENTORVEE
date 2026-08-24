@@ -3,19 +3,113 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SysSandbox - Concept-to-System Simulation Sandbox</title>
+    <title>MENTORVEE - Concept-to-System Simulation Sandbox</title>
     <link rel="stylesheet" href="style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
+    <!-- Auth Overlay (landing screen if unauthenticated) -->
+    <div id="auth-overlay" class="auth-overlay">
+        <div class="auth-card card">
+            <div class="auth-header">
+                <span class="logo-icon">⚡</span>
+                <h2>MENTORVEE</h2>
+                <p id="auth-subtitle" style="font-size:0.85rem; color:var(--text-secondary); margin-top:0.25rem;">Interactive Concept-to-System Platform</p>
+            </div>
+            
+            <!-- Login Form -->
+            <div id="login-form-div" class="auth-form">
+                <h3>Login</h3>
+                <div class="form-group">
+                    <label>Email Address</label>
+                    <input type="email" id="login-email" placeholder="e.g. name@collegename.edu">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="login-password" placeholder="Password">
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; font-size: 0.8rem;">
+                    <a href="#" id="to-forgot-btn" style="color: var(--accent-cyan); text-decoration: none;">Forgot Password?</a>
+                </div>
+                <button class="btn-primary" id="login-submit-btn" style="margin-top: 0.5rem;">Sign In</button>
+                <p class="auth-toggle-text">Don't have an account? <a href="#" id="to-signup-btn">Sign Up</a></p>
+            </div>
+
+            <!-- Signup Form -->
+            <div id="signup-form-div" class="auth-form hidden">
+                <h3>Create Account</h3>
+                <div class="form-group">
+                    <label>Email Address</label>
+                    <input type="email" id="signup-email" placeholder="e.g. name@collegename.edu">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="signup-password" placeholder="Min 8 chars, mix case/digits">
+                </div>
+                <div class="form-group">
+                    <label>Confirm Password</label>
+                    <input type="password" id="signup-confirm-password" placeholder="Repeat password">
+                </div>
+                <div class="form-group">
+                    <label>I am a:</label>
+                    <select id="signup-role">
+                        <option value="student">Student</option>
+                        <option value="teacher">Teacher</option>
+                    </select>
+                </div>
+                <!-- Conditional: Student Class -->
+                <div class="form-group" id="signup-student-class-div">
+                    <label>Select Enrolled Class</label>
+                    <select id="signup-class-id">
+                        <!-- Dynamic list from backend -->
+                    </select>
+                </div>
+                <!-- Conditional: Teacher Invite Code -->
+                <div class="form-group hidden" id="signup-teacher-code-div">
+                    <label>Invite Code</label>
+                    <input type="text" id="signup-invite-code" placeholder="TEACH-XXXXXXXX">
+                </div>
+                <button class="btn-primary" id="signup-submit-btn" style="margin-top: 0.5rem;">Sign Up</button>
+                <p class="auth-toggle-text">Already have an account? <a href="#" id="to-login-btn">Log In</a></p>
+            </div>
+
+            <!-- Forgot Password Form -->
+            <div id="forgot-form-div" class="auth-form hidden">
+                <h3>Reset Password</h3>
+                <p class="section-desc">Enter your email and we'll send a password recovery link to your inbox.</p>
+                <div class="form-group">
+                    <label>Email Address</label>
+                    <input type="email" id="forgot-email" placeholder="name@collegename.edu">
+                </div>
+                <button class="btn-primary" id="forgot-submit-btn" style="margin-top: 0.5rem;">Send Reset Link</button>
+                <p class="auth-toggle-text"><a href="#" id="forgot-back-to-login-btn">Back to Login</a></p>
+            </div>
+
+            <!-- Reset Password Form (token from URL) -->
+            <div id="reset-form-div" class="auth-form hidden">
+                <h3>Set New Password</h3>
+                <div class="form-group">
+                    <label>New Password</label>
+                    <input type="password" id="reset-password" placeholder="Min 8 chars, mix case/digits">
+                </div>
+                <div class="form-group">
+                    <label>Confirm New Password</label>
+                    <input type="password" id="reset-confirm-password" placeholder="Repeat password">
+                </div>
+                <button class="btn-primary" id="reset-submit-btn" style="margin-top: 0.5rem;">Change Password</button>
+            </div>
+            
+            <div id="auth-status-message" class="auth-msg hidden"></div>
+        </div>
+    </div>
     <div class="app-container">
         <!-- Sidebar Navigation -->
         <aside class="sidebar">
             <div class="logo">
                 <span class="logo-icon">⚡</span>
-                <h2>SysSandbox</h2>
+                <h2>MENTORVEE</h2>
             </div>
             <nav class="nav-menu">
                 <button class="nav-btn active" data-tab="os-tab">
@@ -27,10 +121,28 @@
                 <button class="nav-btn" data-tab="concurrency-tab">
                     <span class="btn-icon">🔒</span> Lock Manager
                 </button>
-                <button class="nav-btn" data-tab="lab-tab">
+                <button class="nav-btn" data-tab="lab-tab" id="nav-lab-btn">
                     <span class="btn-icon">🎓</span> Faculty Labs
                 </button>
+                
+                <!-- Role-Based Tabs -->
+                <button class="nav-btn hidden" id="nav-student-btn" data-tab="student-content-tab">
+                    <span class="btn-icon">📚</span> Class Workspace
+                </button>
+                <button class="nav-btn hidden" id="nav-teacher-btn" data-tab="teacher-tab">
+                    <span class="btn-icon">📝</span> Teacher Panel
+                </button>
+                <button class="nav-btn hidden" id="nav-admin-btn" data-tab="admin-tab">
+                    <span class="btn-icon">🛠️</span> Admin Console
+                </button>
             </nav>
+            
+            <!-- User Profile Section -->
+            <div class="user-profile card hidden" id="user-profile-section" style="margin-top: auto; padding: 0.75rem; font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.5rem; border-top: 1px solid var(--border-color);">
+                <div>Logged in as: <strong id="user-email-text"></strong></div>
+                <div>Role: <span id="user-role-badge" class="badge"></span></div>
+                <button class="btn-danger btn-sm" id="logout-btn" style="width: 100%; margin-top: 0.25rem; border-radius: 4px;">Logout</button>
+            </div>
             <div class="connection-status">
                 <div class="status-dot disconnected" id="ws-dot"></div>
                 <span id="ws-text">Telemetry Off</span>
@@ -234,7 +346,245 @@
                         <button class="btn-primary hidden" id="lab-submit-btn">Validate Lab Submission</button>
                     </div>
 
-                </section>
+                
+                    <!-- Student Workspace Tab -->
+                    <div class="tab-content hidden" id="student-content-tab">
+                        <h3>My Scoped Class Content</h3>
+                        <p class="section-desc">Access learning material and custom lab presets published by your teacher.</p>
+                        
+                        <div id="student-class-info" style="margin-bottom: 1.5rem; font-weight: 600; color: var(--accent-cyan);">
+                            Class: <span id="student-class-name">Loading...</span>
+                        </div>
+                        
+                        <div class="content-list-container" id="student-content-list">
+                            <p class="table-empty">No content posted for this class yet.</p>
+                        </div>
+                    </div>
+
+                    <!-- Teacher Dashboard Tab -->
+                    <div class="tab-content hidden" id="teacher-tab">
+                        <h3>Publish Class Material & Labs</h3>
+                        <p class="section-desc">Create and upload educational resources or interactive lab scenarios for assigned subjects.</p>
+                        
+                        <div class="form-group">
+                            <label>Target Class/Subject</label>
+                            <select id="teacher-class-select">
+                                <!-- Dynamic classes -->
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Publication Type</label>
+                            <select id="teacher-content-type">
+                                <option value="material">Educational Material (Note / File Upload)</option>
+                                <option value="lab">Custom Simulation Lab Preset</option>
+                            </select>
+                        </div>
+
+                        <!-- Educational Material Forms -->
+                        <div id="teacher-material-fields">
+                            <div class="form-group">
+                                <label>Title</label>
+                                <input type="text" id="material-title" placeholder="e.g. Operating Systems Chapter 3 Note">
+                            </div>
+                            <div class="form-group">
+                                <label>Notes / Text Content</label>
+                                <textarea id="material-desc" rows="4" placeholder="Brief notes for students..."></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label>Upload File (PDF/TXT/JSON, Max 5MB)</label>
+                                <input type="file" id="material-file">
+                            </div>
+                        </div>
+
+                        <!-- Custom Lab Creator Wizard (simplified presets) -->
+                        <div id="teacher-lab-fields" class="hidden">
+                            <div class="form-group">
+                                <label>Lab Title</label>
+                                <input type="text" id="teacher-lab-title" placeholder="e.g. Custom RAM Thrashing Study">
+                            </div>
+                            <div class="form-group">
+                                <label>Lab Description / Instructions</label>
+                                <textarea id="teacher-lab-desc" rows="2" placeholder="Write lab requirements..."></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label>Simulation System Type</label>
+                                <select id="teacher-lab-system">
+                                    <option value="OS">Operating System (CPU/Memory)</option>
+                                    <option value="DBMS">Database Management (Cost Model)</option>
+                                </select>
+                            </div>
+                            
+                            <!-- Simplified OS Config sliders -->
+                            <div id="teacher-lab-os-config">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>RAM Limit (MB)</label>
+                                        <input type="number" id="teacher-lab-os-ram" value="16" min="4" max="128">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Page Replacement</label>
+                                        <select id="teacher-lab-os-policy">
+                                            <option value="LRU">LRU</option>
+                                            <option value="FIFO">FIFO</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label>Starvation Prevention Assertion</label>
+                                    <select id="teacher-lab-os-assert">
+                                        <option value="thrashing">Must Trigger Thrashing (Fault Rate >= 80%)</option>
+                                        <option value="no_thrashing">Must Prevent Thrashing (Fault Rate <= 15%)</option>
+                                        <option value="turnaround">Optimized Avg Turnaround (<= 5.0ms)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <!-- Simplified DBMS Config sliders -->
+                            <div id="teacher-lab-dbms-config" class="hidden">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>Index Type</label>
+                                        <select id="teacher-lab-dbms-index">
+                                            <option value="B-Tree">B-Tree</option>
+                                            <option value="Linear Scan">Linear Scan</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Storage Medium</label>
+                                        <select id="teacher-lab-dbms-storage">
+                                            <option value="HDD">HDD</option>
+                                            <option value="SSD">SSD</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label>Latency Assertion</label>
+                                    <select id="teacher-lab-dbms-assert">
+                                        <option value="low_latency">Must achieve point latency <= 5ms</option>
+                                        <option value="high_latency">Must show range query seek penalties >= 20ms</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button class="btn-primary" id="teacher-publish-btn" style="margin-top: 1rem;">Publish Content</button>
+
+                        <h4 style="margin-top: 2rem; margin-bottom: 0.75rem;">Published Class Materials</h4>
+                        <div class="content-list-container" id="teacher-content-list" style="max-height: 250px; overflow-y: auto;">
+                            <!-- List of published items -->
+                        </div>
+                    </div>
+
+                    <!-- Admin Console Tab -->
+                    <div class="tab-content hidden" id="admin-tab">
+                        <h3>College Sandbox Administration</h3>
+                        <p class="section-desc">Manage system classes, generate secure registration invite codes, audit access logs, and control accounts.</p>
+
+                        <!-- Admin subnavigation buttons -->
+                        <div class="btn-group" style="margin-bottom: 1.5rem; gap: 0.25rem;">
+                            <button class="btn-sm active" id="admin-sub-codes" style="flex:1;">Codes</button>
+                            <button class="btn-sm" id="admin-sub-users" style="flex:1;">Users</button>
+                            <button class="btn-sm" id="admin-sub-classes" style="flex:1;">Classes</button>
+                            <button class="btn-sm" id="admin-sub-logs" style="flex:1;">Audits</button>
+                        </div>
+
+                        <!-- Subtab: Codes -->
+                        <div id="admin-panel-codes">
+                            <h4>Generate Teacher Invite Code</h4>
+                            <div class="form-row" style="margin-bottom: 1rem; align-items: flex-end;">
+                                <div class="form-group" style="flex: 2; margin-bottom: 0;">
+                                    <label>Teacher Email</label>
+                                    <input type="email" id="admin-code-email" placeholder="teacher@collegename.edu">
+                                </div>
+                                <button class="btn-primary" id="admin-code-generate-btn" style="flex: 1; height: 35px; padding: 0;">Generate</button>
+                            </div>
+                            <div id="generated-code-display" class="card hidden" style="margin-bottom: 1rem; background: rgba(56,189,248,0.15); border-color: var(--accent-blue); text-align: center; font-weight: bold; font-size: 1.1rem; color: #FFF; padding: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem; align-items: center;">
+                                <div>Code: <span id="new-code-text" style="color: var(--accent-cyan);"></span></div>
+                                <div style="font-size: 0.8rem; font-weight: normal; color: var(--text-secondary); width: 100%;">
+                                    Pre-authorized Invite Link (Click to Copy):<br/>
+                                    <input type="text" id="new-code-link" readonly style="width: 100%; font-family: monospace; font-size: 0.75rem; text-align: center; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); color: var(--accent-cyan); margin-top: 0.25rem; padding: 0.25rem;" onclick="this.select(); document.execCommand('copy'); alert('Link copied to clipboard!');">
+                                </div>
+                            </div>
+                            <h5>Active Invite Codes</h5>
+                            <div style="max-height: 200px; overflow-y: auto;">
+                                <table class="config-table" id="admin-codes-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Email</th>
+                                            <th>Code</th>
+                                            <th>Status</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <!-- Dynamic codes -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Subtab: Users -->
+                        <div id="admin-panel-users" class="hidden">
+                            <h4>User Access Control</h4>
+                            <div style="max-height: 300px; overflow-y: auto;">
+                                <table class="config-table" id="admin-users-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Email</th>
+                                            <th>Role</th>
+                                            <th>Status</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <!-- Dynamic users -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Subtab: Classes -->
+                        <div id="admin-panel-classes" class="hidden">
+                            <h4>Create New Class/Subject</h4>
+                            <div class="form-row" style="margin-bottom: 1rem;">
+                                <div class="form-group" style="flex: 2;">
+                                    <label>Class Name</label>
+                                    <input type="text" id="admin-class-name" placeholder="e.g. Operating Systems">
+                                </div>
+                                <div class="form-group" style="flex: 1;">
+                                    <label>Code</label>
+                                    <input type="text" id="admin-class-code" placeholder="e.g. CS101">
+                                </div>
+                            </div>
+                            <button class="btn-primary" id="admin-class-create-btn" style="margin-bottom: 1rem;">Create Class</button>
+                            <h5>All Active Classes</h5>
+                            <ul class="assertion-list" id="admin-classes-list" style="max-height: 150px; overflow-y: auto;">
+                                <!-- Dynamic classes list -->
+                            </ul>
+                        </div>
+
+                        <!-- Subtab: Audits -->
+                        <div id="admin-panel-logs" class="hidden">
+                            <h4>System Security Audit Log</h4>
+                            <div style="max-height: 300px; overflow-y: auto;">
+                                <table class="config-table" id="admin-logs-table" style="font-size: 0.75rem;">
+                                    <thead>
+                                        <tr>
+                                            <th>Admin</th>
+                                            <th>Action</th>
+                                            <th>Time</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <!-- Dynamic audit logs -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+</section>
 
                 <!-- Right Column: Visualizer & Live Dials -->
                 <div class="visualization-column">

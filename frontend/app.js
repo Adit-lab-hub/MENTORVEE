@@ -18,12 +18,55 @@ let targetCpu = 10, curCpu = 10;
 let targetMem = 20, curMem = 20;
 let targetLat = 2, curLat = 2;
 
+// Secure Session State
+let currentUser = null;
+let currentClasses = [];
+let activeResetToken = "";
+let activeLabKey = "";
+
+// Default grading presets
+const presets = {
+    thrashing_lab: {
+        title: "Memory Thrashing Investigation",
+        description: "Configure process virtual page requests sequence to saturate physical memory frames. Check replacement policies LRU and FIFO.",
+        assertions: [
+            { metric: "page_fault_rate", desc: "Page Fault Rate must exceed 60% (>0.6)" },
+            { metric: "is_thrashing", desc: "System must enter Thrashing state == True" }
+        ],
+        config: { ram_size_mb: 8, page_replacement_policy: "FIFO" },
+        scenarios: [
+            { process_id: "P1", burst_time: 4.0, arrival_time: 0, memory_pages: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] }
+        ]
+    },
+    scheduling_overhead_lab: {
+        title: "CPU Quantum Overhead Optimization",
+        description: "Analyze how context switch overhead costs affect average turnaround times in Round Robin algorithms.",
+        assertions: [
+            { metric: "average_waiting_time", desc: "Average Wait Time must be under 15ms" },
+            { metric: "average_turnaround_time", desc: "Average Turnaround Time must be under 20ms" }
+        ],
+        config: { algorithm: "Round Robin", quantum: 1.0, context_switch_overhead: 0.8 },
+        scenarios: [
+            { process_id: "P1", burst_time: 3.0, arrival_time: 0 },
+            { process_id: "P2", burst_time: 4.0, arrival_time: 0.5 }
+        ]
+    },
+    deadlock_lab: {
+        title: "Transaction Deadlock Cycles",
+        description: "Trace transaction row acquisitions. Students are expected to configure a deadlock state manually.",
+        assertions: [
+            { metric: "deadlocks", desc: "Deadlock Wait-For cycle graph must contain at least 1 cycle" }
+        ],
+        config: { pool_size: 5 },
+        scenarios: []
+    }
+};
+
 // Initialize
 document.addEventListener("DOMContentLoaded", () => {
     initTabs();
     initProcessTable();
     initTelemetryDials();
-    connectWebSocket();
     
     // Bind Event Listeners
     document.getElementById("add-proc-btn").addEventListener("click", addProcessRow);
@@ -45,9 +88,291 @@ document.addEventListener("DOMContentLoaded", () => {
         btn.addEventListener("click", () => triggerChaos(btn.dataset.chaos));
     });
     document.getElementById("chaos-reset-btn").addEventListener("click", resetChaos);
+
+    // Auth screen switch toggles
+    document.getElementById("to-signup-btn").addEventListener("click", (e) => { e.preventDefault(); switchAuthForm("signup"); });
+    document.getElementById("to-login-btn").addEventListener("click", (e) => { e.preventDefault(); switchAuthForm("login"); });
+    document.getElementById("to-forgot-btn").addEventListener("click", (e) => { e.preventDefault(); switchAuthForm("forgot"); });
+    document.getElementById("forgot-back-to-login-btn").addEventListener("click", (e) => { e.preventDefault(); switchAuthForm("login"); });
+    document.getElementById("signup-role").addEventListener("change", toggleSignupConditionalFields);
+    
+    // Auth actions submit bindings
+    document.getElementById("login-submit-btn").addEventListener("click", handleLogin);
+    document.getElementById("signup-submit-btn").addEventListener("click", handleSignup);
+    document.getElementById("forgot-submit-btn").addEventListener("click", handleForgotPassword);
+    document.getElementById("reset-submit-btn").addEventListener("click", handleResetPassword);
+    document.getElementById("logout-btn").addEventListener("click", handleLogout);
+
+    // Teacher Panel events
+    document.getElementById("teacher-content-type").addEventListener("change", toggleTeacherContentFields);
+    document.getElementById("teacher-lab-system").addEventListener("change", toggleTeacherLabFields);
+    document.getElementById("teacher-publish-btn").addEventListener("click", handleTeacherPublish);
+
+    // Admin Panel events
+    document.getElementById("admin-sub-codes").addEventListener("click", () => switchAdminTab("codes"));
+    document.getElementById("admin-sub-users").addEventListener("click", () => switchAdminTab("users"));
+    document.getElementById("admin-sub-classes").addEventListener("click", () => switchAdminTab("classes"));
+    document.getElementById("admin-sub-logs").addEventListener("click", () => switchAdminTab("logs"));
+    document.getElementById("admin-code-generate-btn").addEventListener("click", handleAdminGenerateCode);
+    document.getElementById("admin-class-create-btn").addEventListener("click", handleAdminCreateClass);
+
+    // Check query params for forgot password recovery token
+    const urlParams = new URLSearchParams(window.location.search);
+    const recoveryToken = urlParams.get("token");
+    if (recoveryToken) {
+        activeResetToken = recoveryToken;
+        switchAuthForm("reset");
+        document.getElementById("auth-overlay").classList.remove("hidden");
+    } else {
+        // Run session check on start
+        checkSession();
+    }
 });
 
-// Sidebar tabs toggles
+// ----------------------------------------------------
+// Secure Session Authentication Management
+// ----------------------------------------------------
+async function checkSession() {
+    try {
+        const res = await fetch(`${API_URL}/auth/me`, { credentials: "include" });
+        if (res.ok) {
+            currentUser = await res.json();
+            document.getElementById("auth-overlay").classList.add("hidden");
+            
+            // Populate user profile info in sidebar
+            document.getElementById("user-profile-section").classList.remove("hidden");
+            document.getElementById("user-email-text").innerText = currentUser.email;
+            
+            const badge = document.getElementById("user-role-badge");
+            badge.innerText = currentUser.role;
+            badge.className = `badge badge-${currentUser.role}`;
+
+            // Adjust navigation tabs visibilities based on roles
+            document.getElementById("nav-student-btn").classList.add("hidden");
+            document.getElementById("nav-teacher-btn").classList.add("hidden");
+            document.getElementById("nav-admin-btn").classList.add("hidden");
+
+            if (currentUser.role === "student") {
+                document.getElementById("nav-student-btn").classList.remove("hidden");
+                loadStudentContent();
+            } else if (currentUser.role === "teacher") {
+                document.getElementById("nav-teacher-btn").classList.remove("hidden");
+                loadTeacherDashboard();
+            } else if (currentUser.role === "admin") {
+                document.getElementById("nav-admin-btn").classList.remove("hidden");
+                loadAdminDashboard();
+            }
+
+            // Autoconnect telemetry websocket securely
+            if (!wsClient) connectWebSocket();
+        } else {
+            // Unauthenticated
+            currentUser = null;
+            document.getElementById("auth-overlay").classList.remove("hidden");
+            document.getElementById("user-profile-section").classList.add("hidden");
+            if (wsClient) wsClient.close();
+            
+            // Pre-fill and lock invite link if present
+            const urlParams = new URLSearchParams(window.location.search);
+            const inviteCode = urlParams.get("invite");
+            const inviteEmail = urlParams.get("email");
+            if (inviteCode && inviteEmail) {
+                switchAuthForm("signup");
+                document.getElementById("signup-role").value = "teacher";
+                toggleSignupConditionalFields();
+                const signupEmail = document.getElementById("signup-email");
+                signupEmail.value = inviteEmail;
+                signupEmail.disabled = true;
+                document.getElementById("signup-invite-code").value = inviteCode;
+            } else {
+                switchAuthForm("login");
+            }
+            
+            // Preload classes list for signup dropdown
+            loadClassesForSignup();
+        }
+    } catch (e) {
+        console.error("Session check failed:", e);
+    }
+}
+
+function switchAuthForm(formId) {
+    document.querySelectorAll(".auth-form").forEach(f => f.classList.add("hidden"));
+    document.getElementById(`${formId}-form-div`).classList.remove("hidden");
+    const statusMsg = document.getElementById("auth-status-message");
+    statusMsg.classList.add("hidden");
+}
+
+function toggleSignupConditionalFields() {
+    const role = document.getElementById("signup-role").value;
+    const studentDiv = document.getElementById("signup-student-class-div");
+    const teacherDiv = document.getElementById("signup-teacher-code-div");
+    
+    if (role === "student") {
+        studentDiv.classList.remove("hidden");
+        teacherDiv.classList.add("hidden");
+    } else {
+        studentDiv.classList.add("hidden");
+        teacherDiv.classList.remove("hidden");
+    }
+}
+
+async function loadClassesForSignup() {
+    try {
+        const res = await fetch(`${API_URL}/auth/classes`);
+        if (res.ok) {
+            currentClasses = await res.json();
+            const select = document.getElementById("signup-class-id");
+            select.innerHTML = "";
+            currentClasses.forEach(c => {
+                const opt = document.createElement("option");
+                opt.value = c.id;
+                opt.innerText = `${c.name} (${c.code})`;
+                select.appendChild(opt);
+            });
+        }
+    } catch (e) {
+        console.error("Could not load classes:", e);
+    }
+}
+
+function showAuthMessage(text, isError = false) {
+    const el = document.getElementById("auth-status-message");
+    el.innerHTML = text;
+    el.className = `auth-msg ${isError ? "error" : "success"}`;
+    el.classList.remove("hidden");
+}
+
+async function handleLogin() {
+    const email = document.getElementById("login-email").value;
+    const password = document.getElementById("login-password").value;
+    if (!email || !password) return showAuthMessage("Email and password are required", true);
+    
+    try {
+        const res = await fetch(`${API_URL}/auth/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, password }),
+            credentials: "include"
+        });
+        const data = await res.json();
+        if (res.ok) {
+            checkSession();
+        } else {
+            showAuthMessage(data.detail || "Authentication failed", true);
+        }
+    } catch (e) {
+        showAuthMessage("Connection error to server", true);
+    }
+}
+
+async function handleSignup() {
+    const email = document.getElementById("signup-email").value;
+    const password = document.getElementById("signup-password").value;
+    const confirm = document.getElementById("signup-confirm-password").value;
+    const role = document.getElementById("signup-role").value;
+    
+    if (password !== confirm) return showAuthMessage("Passwords do not match", true);
+    
+    const payload = { email, password, role };
+    if (role === "student") {
+        payload.class_id = parseInt(document.getElementById("signup-class-id").value);
+    } else {
+        payload.invite_code = document.getElementById("signup-invite-code").value;
+    }
+    
+    try {
+        const res = await fetch(`${API_URL}/auth/signup`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.ok) {
+            let msg = data.message;
+            if (data.verification_link) {
+                // Return a simulation helper button so user can click to mock verify email!
+                msg += `<br/><br/><a href="${data.verification_link}" class="btn-sm" style="display:inline-block; margin-top:0.5rem; text-decoration:none; background:var(--accent-green); color:#000; font-weight:bold;">[SIMULATION] Click to verify email address</a>`;
+            }
+            const el = document.getElementById("auth-status-message");
+            el.innerHTML = msg;
+            el.className = "auth-msg success";
+            el.classList.remove("hidden");
+        } else {
+            showAuthMessage(data.detail || "Registration failed", true);
+        }
+    } catch (e) {
+        showAuthMessage("Connection error to server", true);
+    }
+}
+
+async function handleForgotPassword() {
+    const email = document.getElementById("forgot-email").value;
+    if (!email) return showAuthMessage("Email address is required", true);
+    
+    try {
+        const res = await fetch(`${API_URL}/auth/forgot-password`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            let msg = data.message;
+            if (data.reset_link) {
+                msg += `<br/><br/><a href="${data.reset_link}" class="btn-sm" style="display:inline-block; margin-top:0.5rem; text-decoration:none; background:var(--accent-cyan); color:#000; font-weight:bold;">[SIMULATION] Click to reset password</a>`;
+            }
+            const el = document.getElementById("auth-status-message");
+            el.innerHTML = msg;
+            el.className = "auth-msg success";
+            el.classList.remove("hidden");
+        } else {
+            showAuthMessage(data.detail || "Request failed", true);
+        }
+    } catch (e) {
+        showAuthMessage("Connection error", true);
+    }
+}
+
+async function handleResetPassword() {
+    const password = document.getElementById("reset-password").value;
+    const confirm = document.getElementById("reset-confirm-password").value;
+    if (password !== confirm) return showAuthMessage("Passwords do not match", true);
+    
+    try {
+        const res = await fetch(`${API_URL}/auth/reset-password`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: activeResetToken, new_password: password })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            showAuthMessage("Password changed successfully. Redirecting to login...", false);
+            setTimeout(() => {
+                window.history.replaceState({}, document.title, window.location.pathname); // clear query string
+                switchAuthForm("login");
+            }, 2000);
+        } else {
+            showAuthMessage(data.detail || "Password reset failed", true);
+        }
+    } catch (e) {
+        showAuthMessage("Connection error", true);
+    }
+}
+
+async function handleLogout() {
+    try {
+        await fetch(`${API_URL}/auth/logout`, { method: "POST", credentials: "include" });
+        currentUser = null;
+        checkSession();
+    } catch (e) {
+        console.error("Logout failed:", e);
+    }
+}
+
+// ----------------------------------------------------
+// Sidebar navigation tabs toggles
+// ----------------------------------------------------
 function initTabs() {
     const navButtons = document.querySelectorAll(".nav-btn");
     const contents = document.querySelectorAll(".tab-content");
@@ -63,7 +388,6 @@ function initTabs() {
             const tabId = btn.dataset.tab;
             document.getElementById(tabId).classList.remove("hidden");
             
-            // Map configuration tab to simulation output panel
             if (tabId === "os-tab") {
                 document.getElementById("os-vis").classList.remove("hidden");
                 document.getElementById("tab-title").innerText = "OS Simulation Sandbox";
@@ -80,12 +404,618 @@ function initTabs() {
                 document.getElementById("lab-vis").classList.remove("hidden");
                 document.getElementById("tab-title").innerText = "Faculty Lab Configurations";
                 document.getElementById("tab-subtitle").innerText = "Run grading test suites against user-defined resource parameters";
+            } else if (tabId === "student-content-tab") {
+                document.getElementById("tab-title").innerText = "Class Content Desk";
+                document.getElementById("tab-subtitle").innerText = "Access course files and test presets shared by your teacher";
+                loadStudentContent();
+            } else if (tabId === "teacher-tab") {
+                document.getElementById("tab-title").innerText = "Teacher Workspace";
+                document.getElementById("tab-subtitle").innerText = "Publish files or configure dynamic sandbox labs for students";
+                loadTeacherDashboard();
+            } else if (tabId === "admin-tab") {
+                document.getElementById("tab-title").innerText = "Administration Console";
+                document.getElementById("tab-subtitle").innerText = "Audit logs, generate teacher codes, and manage user accounts";
+                loadAdminDashboard();
             }
         });
     });
 }
 
+// ----------------------------------------------------
+// Student Scoped Content Loading and Presets Action
+// ----------------------------------------------------
+async function loadStudentContent() {
+    try {
+        const res = await fetch(`${API_URL}/content`, { credentials: "include" });
+        if (!res.ok) return;
+        const contents = await res.json();
+        
+        // Find enrolled class name
+        if (currentUser && currentUser.role === "student") {
+            const osClass = currentClasses.find(c => c.code === "OS");
+            const dbmsClass = currentClasses.find(c => c.code === "DBMS");
+            let nameStr = "";
+            if (osClass && dbmsClass) {
+                nameStr = `${osClass.name} (${osClass.code}) & ${dbmsClass.name} (${dbmsClass.code})`;
+            } else {
+                nameStr = "Operating Systems (OS) & Database Management Systems (DBMS)";
+            }
+            document.getElementById("student-class-name").innerText = nameStr;
+        } else if (currentUser && currentUser.class_id) {
+            const classObj = currentClasses.find(c => c.id === currentUser.class_id);
+            document.getElementById("student-class-name").innerText = classObj ? `${classObj.name} (${classObj.code})` : "General";
+        }
+        
+        const list = document.getElementById("student-content-list");
+        list.innerHTML = "";
+        
+        if (contents.length === 0) {
+            list.innerHTML = `<p class="table-empty">No content or labs posted for your class yet.</p>`;
+            return;
+        }
+        
+        contents.forEach(c => {
+            const card = document.createElement("div");
+            card.className = "content-card card";
+            
+            let downloadBtn = "";
+            if (c.has_file) {
+                downloadBtn = `<a href="${API_URL}/content/${c.id}/download" class="btn-sm" style="text-decoration:none; display:inline-block; margin-top:0.25rem;">💾 Download ${c.file_name}</a>`;
+            }
+            
+            let actionBtn = "";
+            if (c.type === "lab") {
+                actionBtn = `<button class="btn-primary btn-sm" style="margin-top:0.5rem;" onclick="loadCustomTeacherLab(${c.id}, '${escapeQuote(c.payload)}')">🔬 Load Lab Simulator</button>`;
+            }
+            
+            card.innerHTML = `
+                <h4>${c.title}</h4>
+                <p>${c.description}</p>
+                <div class="content-card-meta">
+                    <span>Type: <strong style="color:var(--accent-cyan);">${c.type.toUpperCase()}</strong></span>
+                    <span>Date: ${new Date(c.created_at).toLocaleDateString()}</span>
+                </div>
+                ${downloadBtn}
+                ${actionBtn}
+            `;
+            list.appendChild(card);
+        });
+    } catch (e) {
+        console.error("Student content fetch failed:", e);
+    }
+}
+
+function escapeQuote(str) {
+    return str.replace(/'/g, "\'").replace(/"/g, '&quot;');
+}
+
+window.loadCustomTeacherLab = (contentId, payloadStr) => {
+    try {
+        const p = JSON.parse(payloadStr.replace(/&quot;/g, '"'));
+        activeLabKey = contentId.toString();
+        
+        writeConsole(`Custom Teacher Lab Loaded: ${p.title || "Custom Lab"}. Setting up configuration...`);
+        
+        if (p.system_type === "OS") {
+            document.getElementById("os-ram").value = p.configuration.ram_size_mb || 16;
+            document.getElementById("os-policy").value = p.configuration.page_replacement_policy || "LRU";
+            document.getElementById("os-algo").value = p.configuration.algorithm || "Round Robin";
+            document.getElementById("os-quantum").value = p.configuration.quantum || 2.0;
+            document.getElementById("os-overhead").value = p.configuration.context_switch_overhead || 0.1;
+            
+            activeProcesses = p.scenarios.map(s => ({
+                id: s.process_id,
+                burst: s.burst_time,
+                arrival: s.arrival_time,
+                priority: s.priority,
+                pages: s.memory_pages || []
+            }));
+            renderProcessTable();
+            document.querySelector('.nav-btn[data-tab="os-tab"]').click();
+        } else {
+            document.getElementById("dbms-index").value = p.configuration.index_type || "B-Tree";
+            document.getElementById("dbms-storage").value = p.configuration.storage_type || "SSD";
+            document.getElementById("dbms-buffer").value = p.configuration.buffer_pool_size || 100;
+            document.getElementById("dbms-pool").value = p.configuration.pool_size || 10;
+            
+            if (p.scenarios && p.scenarios.length > 0) {
+                const s = p.scenarios[0];
+                document.getElementById("dbms-qtype").value = s.query_type || "point";
+                document.getElementById("dbms-rows").value = s.num_records || 100000;
+                document.getElementById("dbms-range-pct").value = (s.range_fraction || 0.1) * 100;
+                document.getElementById("dbms-concurrent").value = s.concurrent_requests || 1;
+            }
+            document.querySelector('.nav-btn[data-tab="dbms-tab"]').click();
+        }
+        
+        const panel = document.getElementById("lab-instructions-panel");
+        const submitBtn = document.getElementById("lab-submit-btn");
+        
+        document.getElementById("lab-title-text").innerText = p.title;
+        document.getElementById("lab-desc-text").innerText = p.description;
+        
+        const list = document.getElementById("lab-assertions-list");
+        list.innerHTML = "";
+        
+        p.assertions.forEach(a => {
+            const li = document.createElement("li");
+            let opDesc = a.operator === "<=" ? "under" : "above";
+            li.innerHTML = `<span>⚙️</span> Grading: ${a.metric.replace(/_/g, " ")} must be ${opDesc} ${a.value}`;
+            list.appendChild(li);
+        });
+        
+        panel.classList.remove("hidden");
+        submitBtn.classList.remove("hidden");
+        document.getElementById("lab-preset-select").value = ""; 
+        writeConsole(`Custom preset loaded. Navigate to "Faculty Labs" tab to grade your configurations!`);
+        
+    } catch (e) {
+        writeConsole("Failed to load custom lab: " + e.message, "error");
+    }
+};
+
+// ----------------------------------------------------
+// Teacher Panel Publishing Wizard Logic
+// ----------------------------------------------------
+function toggleTeacherContentFields() {
+    const type = document.getElementById("teacher-content-type").value;
+    if (type === "material") {
+        document.getElementById("teacher-material-fields").classList.remove("hidden");
+        document.getElementById("teacher-lab-fields").classList.add("hidden");
+    } else {
+        document.getElementById("teacher-material-fields").classList.add("hidden");
+        document.getElementById("teacher-lab-fields").classList.remove("hidden");
+    }
+}
+
+function toggleTeacherLabFields() {
+    const sys = document.getElementById("teacher-lab-system").value;
+    if (sys === "OS") {
+        document.getElementById("teacher-lab-os-config").classList.remove("hidden");
+        document.getElementById("teacher-lab-dbms-config").classList.add("hidden");
+    } else {
+        document.getElementById("teacher-lab-os-config").classList.add("hidden");
+        document.getElementById("teacher-lab-dbms-config").classList.remove("hidden");
+    }
+}
+
+async function loadTeacherDashboard() {
+    try {
+        const cres = await fetch(`${API_URL}/auth/classes`);
+        if (cres.ok) {
+            const classes = await cres.json();
+            const select = document.getElementById("teacher-class-select");
+            select.innerHTML = "";
+            classes.forEach(c => {
+                const opt = document.createElement("option");
+                opt.value = c.id;
+                opt.innerText = `${c.name} (${c.code})`;
+                select.appendChild(opt);
+            });
+        }
+        
+        const res = await fetch(`${API_URL}/content`, { credentials: "include" });
+        if (res.ok) {
+            const list = document.getElementById("teacher-content-list");
+            list.innerHTML = "";
+            const items = await res.json();
+            
+            if (items.length === 0) {
+                list.innerHTML = `<p class="table-empty">You haven't published any material yet.</p>`;
+                return;
+            }
+            
+            items.forEach(i => {
+                const el = document.createElement("div");
+                el.className = "content-card card";
+                el.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                        <h4>${i.title} (${i.class_name})</h4>
+                        <button class="btn-sm" style="color:var(--accent-red); background:rgba(239,68,68,0.1);" onclick="handleDeleteContent(${i.id})">Delete</button>
+                    </div>
+                    <p style="font-size:0.8rem; color:var(--text-secondary); margin-top:0.25rem;">Type: ${i.type.toUpperCase()}</p>
+                `;
+                list.appendChild(el);
+            });
+        }
+    } catch (e) {
+        console.error("Teacher dashboard loading error:", e);
+    }
+}
+
+async function handleTeacherPublish() {
+    const classId = document.getElementById("teacher-class-select").value;
+    const type = document.getElementById("teacher-content-type").value;
+    
+    const formData = new FormData();
+    formData.append("class_id", classId);
+    formData.append("content_type", type);
+    
+    if (type === "material") {
+        const title = document.getElementById("material-title").value;
+        const desc = document.getElementById("material-desc").value;
+        const file = document.getElementById("material-file").files[0];
+        
+        if (!title) return alert("Title is required");
+        formData.append("title", title);
+        formData.append("description", desc);
+        if (file) {
+            formData.append("file", file);
+        }
+    } else {
+        const title = document.getElementById("teacher-lab-title").value;
+        const desc = document.getElementById("teacher-lab-desc").value;
+        const sys = document.getElementById("teacher-lab-system").value;
+        
+        if (!title) return alert("Lab title is required");
+        
+        formData.append("title", title);
+        formData.append("description", desc);
+        
+        const labConfig = {
+            system_type: sys,
+            configuration: {},
+            scenarios: [],
+            assertions: []
+        };
+        
+        if (sys === "OS") {
+            const ram = parseInt(document.getElementById("teacher-lab-os-ram").value);
+            const policy = document.getElementById("teacher-lab-os-policy").value;
+            const assertType = document.getElementById("teacher-lab-os-assert").value;
+            
+            labConfig.configuration = {
+                ram_size_mb: ram,
+                page_replacement_policy: policy,
+                algorithm: "Round Robin",
+                quantum: 2.0,
+                context_switch_overhead: 0.1
+            };
+            
+            if (assertType === "thrashing") {
+                labConfig.scenarios = [
+                    { process_id: "P1", burst_time: 10.0, arrival_time: 0.0, priority: 1, memory_pages: [1,2,3,4,5,6,7,8,9,10] }
+                ];
+                labConfig.assertions = [
+                    { metric: "is_thrashing", operator: "==", value: true },
+                    { metric: "page_fault_rate", operator: ">=", value: 0.7 }
+                ];
+            } else {
+                labConfig.scenarios = [
+                    { process_id: "P1", burst_time: 3.0, arrival_time: 0.0, priority: 1, memory_pages: [1,2] },
+                    { process_id: "P2", burst_time: 2.0, arrival_time: 1.0, priority: 2, memory_pages: [2,3] }
+                ];
+                if (assertType === "no_thrashing") {
+                    labConfig.assertions = [
+                        { metric: "is_thrashing", operator: "==", value: false },
+                        { metric: "page_fault_rate", operator: "<=", value: 0.15 }
+                    ];
+                } else {
+                    labConfig.assertions = [
+                        { metric: "average_turnaround_time", operator: "<=", value: 5.0 }
+                    ];
+                }
+            }
+        } else {
+            const indexType = document.getElementById("teacher-lab-dbms-index").value;
+            const storage = document.getElementById("teacher-lab-dbms-storage").value;
+            const assertType = document.getElementById("teacher-lab-dbms-assert").value;
+            
+            labConfig.configuration = {
+                index_type: indexType,
+                storage_type: storage,
+                buffer_pool_size: 100,
+                pool_size: 10
+            };
+            
+            labConfig.scenarios = [
+                { query_type: "range", num_records: 100000, range_fraction: 0.1, concurrent_requests: 1 }
+            ];
+            
+            if (assertType === "low_latency") {
+                labConfig.assertions = [
+                    { metric: "average_latency_ms", operator: "<=", value: 5.0 }
+                ];
+            } else {
+                labConfig.assertions = [
+                    { metric: "average_latency_ms", operator: ">=", value: 20.0 }
+                ];
+            }
+        }
+        
+        formData.append("payload", JSON.stringify(labConfig));
+    }
+    
+    try {
+        const res = await fetch(`${API_URL}/content`, {
+            method: "POST",
+            body: formData,
+            credentials: "include"
+        });
+        if (res.ok) {
+            alert("Published content successfully!");
+            document.getElementById("material-title").value = "";
+            document.getElementById("material-desc").value = "";
+            document.getElementById("teacher-lab-title").value = "";
+            document.getElementById("teacher-lab-desc").value = "";
+            loadTeacherDashboard();
+        } else {
+            const data = await res.json();
+            alert("Publishing failed: " + (data.detail || "Unknown error"));
+        }
+    } catch (e) {
+        alert("Publish error: " + e.message);
+    }
+}
+
+window.handleDeleteContent = async (id) => {
+    if (!confirm("Are you sure you want to delete this publication?")) return;
+    try {
+        const res = await fetch(`${API_URL}/content/${id}`, { method: "DELETE", credentials: "include" });
+        if (res.ok) {
+            loadTeacherDashboard();
+        }
+    } catch (e) {
+        console.error("Delete failed:", e);
+    }
+};
+
+// ----------------------------------------------------
+// Admin dashboard view management
+// ----------------------------------------------------
+function switchAdminTab(subId) {
+    document.querySelectorAll("[id^='admin-panel-']").forEach(p => p.classList.add("hidden"));
+    document.querySelectorAll("[id^='admin-sub-']").forEach(b => b.classList.remove("active"));
+    
+    document.getElementById(`admin-panel-${subId}`).classList.remove("hidden");
+    document.getElementById(`admin-sub-${subId}`).classList.add("active");
+}
+
+async function loadAdminDashboard() {
+    loadAdminCodes();
+    loadAdminUsers();
+    loadAdminClasses();
+    loadAdminLogs();
+}
+
+async function loadAdminCodes() {
+    try {
+        const res = await fetch(`${API_URL}/admin/invite-codes`, { credentials: "include" });
+        if (res.ok) {
+            const list = document.querySelector("#admin-codes-table tbody");
+            list.innerHTML = "";
+            const codes = await res.json();
+            if (codes.length === 0) {
+                list.innerHTML = `<tr><td colspan="4" class="table-empty">No invite codes generated yet</td></tr>`;
+                return;
+            }
+            codes.forEach(c => {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td>${c.assigned_teacher_email}</td>
+                    <td><code style="color:var(--accent-cyan); font-weight:bold;">${c.code}</code></td>
+                    <td><span class="badge ${c.status === "unused" ? "badge-student" : "badge-admin"}">${c.status}</span></td>
+                    <td>
+                        ${c.status === "unused" ? `<button class="btn-sm" style="color:var(--accent-red); background:rgba(239,68,68,0.1);" onclick="handleRevokeCode(${c.id})">Revoke</button>` : "None"}
+                    </td>
+                `;
+                list.appendChild(tr);
+            });
+        }
+    } catch (e) {
+        console.error("Load codes failed:", e);
+    }
+}
+
+async function handleAdminGenerateCode() {
+    const email = document.getElementById("admin-code-email").value;
+    if (!email) return alert("Email is required");
+    try {
+        const res = await fetch(`${API_URL}/admin/invite-codes`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email }),
+            credentials: "include"
+        });
+        const data = await res.json();
+        if (res.ok) {
+            document.getElementById("generated-code-display").classList.remove("hidden");
+            document.getElementById("new-code-text").innerText = data.code;
+            document.getElementById("new-code-link").value = data.invite_link;
+            document.getElementById("admin-code-email").value = "";
+            loadAdminCodes();
+        } else {
+            alert(data.detail || "Generation failed");
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+window.handleRevokeCode = async (id) => {
+    try {
+        await fetch(`${API_URL}/admin/invite-codes/${id}`, { method: "DELETE", credentials: "include" });
+        loadAdminCodes();
+    } catch (e) {
+        console.error(e);
+    }
+};
+
+async function loadAdminUsers() {
+    try {
+        const res = await fetch(`${API_URL}/admin/users`, { credentials: "include" });
+        const cres = await fetch(`${API_URL}/auth/classes`);
+        if (res.ok && cres.ok) {
+            const classes = await cres.json();
+            const list = document.querySelector("#admin-users-table tbody");
+            list.innerHTML = "";
+            const users = await res.json();
+            
+            users.forEach(u => {
+                const tr = document.createElement("tr");
+                
+                let classOptions = `<option value="">-- Unassigned --</option>`;
+                classes.forEach(c => {
+                    classOptions += `<option value="${c.id}" ${u.class_id === c.id ? "selected" : ""}>${c.name}</option>`;
+                });
+                const classSelector = `<select style="font-size:0.75rem; padding:0.1rem; width:110px;" onchange="handleAssignClass('${u.id}', this.value)">${classOptions}</select>`;
+                
+                let actions = "";
+                if (u.role === "teacher" && u.status === "pending") {
+                    actions += `<button class="btn-sm" style="color:var(--accent-green);" onclick="handleApproveTeacher('${u.id}')">Approve</button> `;
+                }
+                
+                if (u.status === "active") {
+                    actions += `<button class="btn-sm" style="color:var(--accent-red);" onclick="handleUpdateUserStatus('${u.id}', 'deactivated')">Deactivate</button>`;
+                } else if (u.status === "deactivated") {
+                    actions += `<button class="btn-sm" style="color:var(--accent-cyan);" onclick="handleUpdateUserStatus('${u.id}', 'active')">Activate</button>`;
+                }
+                
+                tr.innerHTML = `
+                    <td><span style="font-size:0.8rem;">${u.email}</span></td>
+                    <td><span class="badge badge-${u.role}">${u.role}</span></td>
+                    <td><span style="font-size:0.8rem; font-weight:600;">${u.status}</span></td>
+                    <td>
+                        <div style="display:flex; flex-direction:column; gap:0.25rem;">
+                            ${u.role !== "admin" ? classSelector : ""}
+                            <div style="display:flex; gap:0.25rem;">
+                                ${actions}
+                                <button class="btn-sm" style="color:var(--accent-red); background:rgba(239,68,68,0.1);" onclick="handleDeleteUser('${u.id}')">Del</button>
+                            </div>
+                        </div>
+                    </td>
+                `;
+                list.appendChild(tr);
+            });
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+window.handleApproveTeacher = async (id) => {
+    try {
+        await fetch(`${API_URL}/admin/users/${id}/approve`, { method: "POST", credentials: "include" });
+        loadAdminUsers();
+    } catch (e) {
+        console.error(e);
+    }
+};
+
+window.handleUpdateUserStatus = async (id, status) => {
+    try {
+        await fetch(`${API_URL}/admin/users/${id}/status`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status }),
+            credentials: "include"
+        });
+        loadAdminUsers();
+    } catch (e) {
+        console.error(e);
+    }
+};
+
+window.handleDeleteUser = async (id) => {
+    if (!confirm("Are you sure you want to permanently delete this user account?")) return;
+    try {
+        await fetch(`${API_URL}/admin/users/${id}`, { method: "DELETE", credentials: "include" });
+        loadAdminUsers();
+    } catch (e) {
+        console.error(e);
+    }
+};
+
+window.handleAssignClass = async (userId, classId) => {
+    try {
+        await fetch(`${API_URL}/admin/users/${userId}/assign-class`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ class_id: classId ? parseInt(classId) : null }),
+            credentials: "include"
+        });
+        loadAdminUsers();
+    } catch (e) {
+        console.error(e);
+    }
+};
+
+async function loadAdminClasses() {
+    try {
+        const res = await fetch(`${API_URL}/auth/classes`);
+        if (res.ok) {
+            const list = document.getElementById("admin-classes-list");
+            list.innerHTML = "";
+            const classes = await res.json();
+            if (classes.length === 0) {
+                list.innerHTML = `<p class="table-empty">No classes created yet</p>`;
+                return;
+            }
+            classes.forEach(c => {
+                const li = document.createElement("li");
+                li.innerHTML = `<span>📂</span> <strong>${c.code}</strong> - ${c.name}`;
+                list.appendChild(li);
+            });
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleAdminCreateClass() {
+    const name = document.getElementById("admin-class-name").value;
+    const code = document.getElementById("admin-class-code").value;
+    if (!name || !code) return alert("Class name and code are required");
+    
+    try {
+        const res = await fetch(`${API_URL}/admin/classes`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, code }),
+            credentials: "include"
+        });
+        if (res.ok) {
+            document.getElementById("admin-class-name").value = "";
+            document.getElementById("admin-class-code").value = "";
+            loadAdminClasses();
+        } else {
+            const data = await res.json();
+            alert(data.detail || "Creation failed");
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function loadAdminLogs() {
+    try {
+        const res = await fetch(`${API_URL}/admin/audit-logs`, { credentials: "include" });
+        if (res.ok) {
+            const list = document.querySelector("#admin-logs-table tbody");
+            list.innerHTML = "";
+            const logs = await res.json();
+            if (logs.length === 0) {
+                list.innerHTML = `<tr><td colspan="3" class="table-empty">No logs captured</td></tr>`;
+                return;
+            }
+            logs.forEach(l => {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td><strong style="color:var(--accent-blue);">${l.admin_email}</strong></td>
+                    <td>${l.action}</td>
+                    <td>${new Date(l.timestamp).toLocaleTimeString()}</td>
+                `;
+                list.appendChild(tr);
+            });
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+// ----------------------------------------------------
 // OS Process Configuration Table Editor
+// ----------------------------------------------------
 function initProcessTable() {
     renderProcessTable();
 }
@@ -160,7 +1090,8 @@ async function runOSSimulation() {
         const res = await fetch(`${API_URL}/os/simulate`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            credentials: "include"
         });
         
         if (!res.ok) throw new Error(await res.text());
@@ -169,7 +1100,6 @@ async function runOSSimulation() {
         renderOSResults(data);
         writeConsole(`OS Simulation completed successfully.\nAvg Wait Time: ${data.average_waiting_time.toFixed(2)}ms\nAvg Turnaround: ${data.average_turnaround_time.toFixed(2)}ms`);
         
-        // Feed into Diagnostics console
         runSystemDiagnostic({
             system_type: "OS",
             average_waiting_time: data.average_waiting_time,
@@ -183,7 +1113,6 @@ async function runOSSimulation() {
 }
 
 function renderOSResults(data) {
-    // 1. Render Gantt Chart Timeline
     const container = document.getElementById("gantt-chart-div");
     container.innerHTML = "";
     
@@ -212,9 +1141,8 @@ function renderOSResults(data) {
             block.innerHTML = `<span>Idle</span><span class="gantt-time">${duration.toFixed(1)}</span>`;
             block.style.color = "#94A3B8";
         } else {
-            // Standard executing blocks (dynamic process colors)
             const pidNum = parseInt(item.process_id.replace("P", "")) || 1;
-            const hue = (pidNum * 137.5) % 360; // Deterministic distribution
+            const hue = (pidNum * 137.5) % 360;
             block.style.backgroundColor = `hsl(${hue}, 85%, 65%)`;
             block.innerHTML = `<span>${item.process_id}</span><span class="gantt-time">${duration.toFixed(1)}</span>`;
             block.style.color = "#0B0F19";
@@ -222,18 +1150,15 @@ function renderOSResults(data) {
         container.appendChild(block);
     });
 
-    // 2. Render Paging frames
     document.getElementById("pg-faults-val").innerText = data.memory_summary.page_faults;
     document.getElementById("pg-rate-val").innerText = (data.memory_summary.page_fault_rate * 100).toFixed(1) + "%";
 
     const grid = document.getElementById("frames-grid-div");
     grid.innerHTML = "";
 
-    // Render active allocated frames
     const totalFrames = data.memory_summary.total_frames;
     const pageTable = data.memory_summary.page_table;
 
-    // Build frame to page map
     const framesMap = new Array(totalFrames).fill(null);
     Object.keys(pageTable).forEach(pid => {
         pageTable[pid].forEach(entry => {
@@ -255,11 +1180,9 @@ function renderOSResults(data) {
         grid.appendChild(box);
     });
 
-    // Update Telemetry Memory level targets
     targetMem = Math.min(100, Math.round(data.memory_summary.page_fault_rate * 100));
-    targetCpu = Math.round(data.average_turnaround_time * 5); // Simulated scaling
+    targetCpu = Math.round(data.average_turnaround_time * 5);
     
-    // Thrashing badge
     const badge = document.getElementById("thrashing-badge");
     if (data.memory_summary.is_thrashing) {
         badge.classList.remove("hidden");
@@ -291,22 +1214,19 @@ async function runDBMSSimulation() {
         const res = await fetch(`${API_URL}/dbms/query`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            credentials: "include"
         });
         
         if (!res.ok) throw new Error(await res.text());
         const data = await res.json();
         
         renderDBMSResults(data, payload);
-        writeConsole(`DBMS Query simulation completed successfully.\nAvg Latency: ${data.estimated_latency_ms.toFixed(2)}ms\nIOPS: ${data.disk_iops.toFixed(1)}`);
+        writeConsole(`DBMS Simulator execution complete.\nEstimated latency: ${data.estimated_latency_ms.toFixed(2)}ms\nHops seek cost: ${data.node_hops}`);
         
-        // Feed into Diagnostics console
         runSystemDiagnostic({
             system_type: "DBMS",
-            latency_ms: data.estimated_latency_ms,
-            cache_hit_ratio: data.cache_hit_ratio,
-            concurrency_wait_ms: data.concurrency_pool_wait_ms,
-            deadlocks: []
+            latency_ms: data.estimated_latency_ms
         });
 
     } catch (e) {
@@ -314,187 +1234,177 @@ async function runDBMSSimulation() {
     }
 }
 
-function renderDBMSResults(data, payload) {
-    document.getElementById("dbms-lat-val").innerText = data.estimated_latency_ms.toFixed(2) + "ms";
+function renderDBMSResults(data, req) {
+    document.getElementById("dbms-lat-val").innerText = data.estimated_latency_ms.toFixed(1) + "ms";
     document.getElementById("dbms-iops-val").innerText = Math.round(data.disk_iops);
     document.getElementById("dbms-hit-val").innerText = (data.cache_hit_ratio * 100).toFixed(0) + "%";
     document.getElementById("dbms-hops-val").innerText = data.node_hops;
 
-    // Update Live Dials Targets
     targetLat = Math.round(data.estimated_latency_ms);
-    targetCpu = Math.round(data.cpu_utilization);
+    targetCpu = Math.round(data.cpu_utilization * 100);
 
-    // 1. Render Index Traversal Paths comparison
-    const pathVis = document.getElementById("btree-path-visual");
-    pathVis.innerHTML = "";
-    if (payload.config.index_type === "B-Tree") {
+    const btreeVisual = document.getElementById("btree-path-visual");
+    btreeVisual.innerHTML = "";
+    
+    if (req.config.index_type === "B-Tree") {
         for (let i = 0; i < data.node_hops; i++) {
             if (i > 0) {
                 const arrow = document.createElement("div");
-                arrow.className = "tree-arrow";
+                arrow.className = "tree-connector";
                 arrow.innerText = "⬇";
-                pathVis.appendChild(arrow);
+                btreeVisual.appendChild(arrow);
             }
             const node = document.createElement("div");
-            node.className = "tree-node-visual";
-            node.innerHTML = `<span>Page Node Lvl ${i}</span>`;
-            pathVis.appendChild(node);
+            node.className = "tree-node";
+            node.innerHTML = `<span>Node H${i}</span><strong>Block ${Math.round(Math.random() * 500)}</strong>`;
+            btreeVisual.appendChild(node);
         }
     } else {
-        pathVis.innerHTML = `<div style="font-size:0.8rem; color:var(--accent-amber);">B-Tree disabled (Sequential Table Scan active)</div>`;
+        btreeVisual.innerHTML = `<div class="table-empty" style="color:var(--accent-red)">Full scan scans all blocks sequentially. No B-Tree traversal path.</div>`;
     }
 
-    // 2. Render linear read blocks representation
-    const blockVis = document.getElementById("linear-blocks-visual");
-    blockVis.innerHTML = "";
+    const linearVisual = document.getElementById("linear-blocks-visual");
+    linearVisual.innerHTML = "";
     
-    // Scale down number of blocks to display (e.g. max 40 blocks representation)
-    const blocksCount = Math.min(60, data.node_hops);
-    for (let i = 0; i < 40; i++) {
+    const maxBlocksToRender = 16;
+    const blocksRead = data.bytes_read / req.config.block_size_bytes;
+    const totalBlocks = req.num_records * 128 / req.config.block_size_bytes;
+    const readFraction = Math.min(1.0, blocksRead / totalBlocks);
+    
+    const highlightedCount = Math.ceil(readFraction * maxBlocksToRender);
+
+    for (let i = 0; i < maxBlocksToRender; i++) {
         const block = document.createElement("div");
-        block.className = "block-box";
-        if (i < blocksCount) {
+        block.className = "linear-block";
+        if (i < highlightedCount) {
             block.classList.add("read");
+            block.style.background = req.config.index_type === "B-Tree" ? "var(--accent-cyan)" : "var(--accent-amber)";
         }
-        blockVis.appendChild(block);
+        linearVisual.appendChild(block);
     }
 }
 
 // ----------------------------------------------------
-// Concurrency lock manager controller
+// Concurrency Lock manager
 // ----------------------------------------------------
-async function acquireLock() {
-    const txId = document.getElementById("lock-tx").value.trim().toUpperCase();
-    const resId = document.getElementById("lock-res").value.trim().toUpperCase();
+function acquireLock() {
+    const tx = document.getElementById("lock-tx").value.trim().toUpperCase();
+    const res = document.getElementById("lock-res").value.trim().toUpperCase();
     const mode = document.getElementById("lock-mode").value;
     
-    if (!txId || !resId) return;
+    if (!tx || !res) return;
     
-    writeConsole(`Requesting Lock: Tx=${txId}, Res=${resId}, Mode=${mode}...`);
+    writeConsole(`Transaction ${tx} requesting ${mode}-Lock on resource ${res}...`);
     
-    // We will model the local acquisition logic to display in GUI
-    // This executes client side state mirroring the locking engines behaviour.
-    const isConflict = checkLockConflict(txId, resId, mode);
+    const existingLockIndex = activeLocks.findIndex(l => l.resource === res);
     
-    if (!isConflict) {
-        // Lock acquired!
-        activeLocks.push({ tx_id: txId, resource_id: resId, lock_type: mode });
-        // Remove from wait queue if was in it
-        waitQueue = waitQueue.filter(w => w.tx_id !== txId);
-        writeConsole(`Lock Acquired successfully: Transaction ${txId} holds ${mode} on ${resId}.`);
+    if (existingLockIndex === -1) {
+        activeLocks.push({ resource: res, holders: [{ tx: tx, mode: mode }] });
+        writeConsole(`Granted ${mode}-Lock on ${res} to ${tx}.`);
     } else {
-        // Blocked!
-        waitQueue.push({ tx_id: txId, resource_id: resId });
-        writeConsole(`Lock BLOCKED: Transaction ${txId} waiting for resource ${resId} to release.`, "warning");
-    }
-    
-    renderLockTables();
-    checkDeadlockCycles();
-}
-
-function checkLockConflict(txId, resId, mode) {
-    // Shared compatible with other Shared, Exclusive is incompatible with anything
-    for (let holder of activeLocks) {
-        if (holder.resource_id === resId && holder.tx_id !== txId) {
-            if (mode === "X" || holder.lock_type === "X") {
-                return true;
-            }
+        const lock = activeLocks[existingLockIndex];
+        const hasExclusive = lock.holders.some(h => h.mode === "X");
+        
+        if (hasExclusive || mode === "X") {
+            waitQueue.push({ tx: tx, resource: res, mode: mode });
+            writeConsole(`Blocked: Resource ${res} held in conflicting mode. ${tx} queued in Wait-For table.`, "warning");
+        } else {
+            lock.holders.push({ tx: tx, mode: mode });
+            writeConsole(`Granted Shared ${mode}-Lock on ${res} to reader ${tx}.`);
         }
     }
-    return false;
+    
+    renderLocks();
+    detectDeadlocks();
 }
 
 function releaseLock() {
-    const txId = document.getElementById("lock-tx").value.trim().toUpperCase();
-    const resId = document.getElementById("lock-res").value.trim().toUpperCase();
+    const tx = document.getElementById("lock-tx").value.trim().toUpperCase();
+    const res = document.getElementById("lock-res").value.trim().toUpperCase();
     
-    if (!txId || !resId) return;
+    if (!tx || !res) return;
     
-    writeConsole(`Releasing Lock: Tx=${txId}, Res=${resId}...`);
-    activeLocks = activeLocks.filter(l => !(l.tx_id === txId && l.resource_id === resId));
+    writeConsole(`Transaction ${tx} releasing locks on ${res}...`);
     
-    writeConsole(`Released Lock successfully.`);
-    
-    // Evaluate if blocked waiters can now acquire
-    reevaluateWaiters();
-    renderLockTables();
-    checkDeadlockCycles();
-}
-
-function reevaluateWaiters() {
-    let recheck = true;
-    while (recheck) {
-        recheck = false;
-        for (let i = 0; i < waitQueue.length; i++) {
-            const waiter = waitQueue[i];
-            const hasConflict = checkLockConflict(waiter.tx_id, waiter.resource_id, "X"); // Defaulting check
-            if (!hasConflict) {
-                // Acquire!
-                activeLocks.push({ tx_id: waiter.tx_id, resource_id: waiter.resource_id, lock_type: "X" });
-                waitQueue.splice(i, 1);
-                writeConsole(`Waiter Woke Up: Transaction ${waiter.tx_id} acquired lock on ${waiter.resource_id}.`);
-                recheck = true;
-                break;
+    const lockIndex = activeLocks.findIndex(l => l.resource === res);
+    if (lockIndex !== -1) {
+        const lock = activeLocks[lockIndex];
+        lock.holders = lock.holders.filter(h => h.tx !== tx);
+        
+        if (lock.holders.length === 0) {
+            activeLocks.splice(lockIndex, 1);
+            
+            const nextIndex = waitQueue.findIndex(w => w.resource === res);
+            if (nextIndex !== -1) {
+                const next = waitQueue.splice(nextIndex, 1)[0];
+                activeLocks.push({ resource: next.resource, holders: [{ tx: next.tx, mode: next.mode }] });
+                writeConsole(`Queued Transaction ${next.tx} granted ${next.mode}-Lock on resource ${next.resource}.`);
             }
         }
     }
+    
+    renderLocks();
+    detectDeadlocks();
 }
 
 function clearLockManager() {
     activeLocks = [];
     waitQueue = [];
-    renderLockTables();
-    checkDeadlockCycles();
-    writeConsole("Lock manager cleaned. All locks released.");
+    renderLocks();
+    detectDeadlocks();
+    writeConsole("Cleared Lock Manager table states.");
 }
 
-function renderLockTables() {
-    const lBody = document.querySelector("#lock-table tbody");
-    lBody.innerHTML = "";
+function renderLocks() {
+    const lockBody = document.querySelector("#lock-table tbody");
+    lockBody.innerHTML = "";
     if (activeLocks.length === 0) {
-        lBody.innerHTML = `<tr><td colspan="3" class="table-empty">No locks held</td></tr>`;
+        lockBody.innerHTML = `<tr><td colspan="3" class="table-empty">No locks held</td></tr>`;
     } else {
         activeLocks.forEach(l => {
             const tr = document.createElement("tr");
-            tr.innerHTML = `<td>${l.resource_id}</td><td>${l.tx_id}</td><td><strong>${l.lock_type}</strong></td>`;
-            lBody.appendChild(tr);
+            const holders = l.holders.map(h => `${h.tx} (${h.mode})`).join(", ");
+            const mode = l.holders.some(h => h.mode === "X") ? "Exclusive" : "Shared";
+            tr.innerHTML = `<td><strong>${l.resource}</strong></td><td>${holders}</td><td>${mode}</td>`;
+            lockBody.appendChild(tr);
         });
     }
-
-    const wBody = document.querySelector("#wait-table tbody");
-    wBody.innerHTML = "";
+    
+    const waitBody = document.querySelector("#wait-table tbody");
+    waitBody.innerHTML = "";
     if (waitQueue.length === 0) {
-        wBody.innerHTML = `<tr><td colspan="2" class="table-empty">No transactions waiting</td></tr>`;
+        waitBody.innerHTML = `<tr><td colspan="2" class="table-empty">No transactions waiting</td></tr>`;
     } else {
         waitQueue.forEach(w => {
             const tr = document.createElement("tr");
-            tr.innerHTML = `<td>${w.tx_id}</td><td>${w.resource_id}</td>`;
-            wBody.appendChild(tr);
+            tr.innerHTML = `<td><strong>${w.tx}</strong></td><td>Waiting for ${w.resource} (${w.mode})</td>`;
+            waitBody.appendChild(tr);
         });
     }
 }
 
-function checkDeadlockCycles() {
-    // DFS Cycle detection on Wait-for-graph
-    // waitQueue maps: Tx -> Res, activeLocks maps: Res -> Tx (holder)
-    // Graph builds: Tx_a -> Tx_b if Tx_a is waiting for Res locked by Tx_b
+function detectDeadlocks() {
     const adj = {};
     const transactions = new Set();
     
     waitQueue.forEach(w => {
-        transactions.add(w.tx_id);
-        const holders = activeLocks.filter(l => l.resource_id === w.resource_id).map(l => l.tx_id);
-        if (!adj[w.tx_id]) adj[w.tx_id] = new Set();
-        holders.forEach(h => {
-            adj[w.tx_id].add(h);
-            transactions.add(h);
-        });
+        transactions.add(w.tx);
+        const lock = activeLocks.find(l => l.resource === w.resource);
+        if (lock) {
+            lock.holders.forEach(h => {
+                if (h.tx !== w.tx) {
+                    if (!adj[w.tx]) adj[w.tx] = [];
+                    adj[w.tx].push(h.tx);
+                    transactions.add(h.tx);
+                }
+            });
+        }
     });
-    
+
+    const visited = {};
+    const path = [];
     const cycles = [];
-    const visited = {}; // 0=visiting, 1=visited
-    let path = [];
-    
+
     function dfs(node) {
         visited[node] = 0;
         path.push(node);
@@ -504,7 +1414,6 @@ function checkDeadlockCycles() {
             if (visited[neighbor] === undefined) {
                 dfs(neighbor);
             } else if (visited[neighbor] === 0) {
-                // Cycle!
                 const startIdx = path.indexOf(neighbor);
                 cycles.push(path.slice(startIdx));
             }
@@ -525,7 +1434,6 @@ function checkDeadlockCycles() {
         badge.classList.remove("hidden");
         writeConsole(`DEADLOCK ALERT: Cycle detected: ${cycles[0].join(" ➜ ")}`, "error");
         
-        // Render simple cycle nodes
         graphDiv.innerHTML = "";
         const cycle = cycles[0];
         const container = document.createElement("div");
@@ -543,7 +1451,6 @@ function checkDeadlockCycles() {
             el.innerText = node;
             container.appendChild(el);
         });
-        // Loop arrow
         const loopArrow = document.createElement("span");
         loopArrow.innerText = "➜ " + cycle[0];
         loopArrow.style.color = "var(--accent-pink)";
@@ -552,7 +1459,6 @@ function checkDeadlockCycles() {
         
         graphDiv.appendChild(container);
         
-        // Push telemetry changes
         targetLat = 1000;
         targetCpu = 5;
         
@@ -569,45 +1475,6 @@ function checkDeadlockCycles() {
 // ----------------------------------------------------
 // Faculty Preset Scenarios
 // ----------------------------------------------------
-const presets = {
-    thrashing_lab: {
-        title: "Memory Thrashing Investigation",
-        description: "Configure process virtual page requests sequence to saturate physical memory frames. Check replacement policies LRU and FIFO.",
-        assertions: [
-            { metric: "page_fault_rate", desc: "Page Fault Rate must exceed 60% (>0.6)" },
-            { metric: "is_thrashing", desc: "System must enter Thrashing state == True" }
-        ],
-        config: { ram_size_mb: 8, page_replacement_policy: "FIFO" },
-        scenarios: [
-            { process_id: "P1", burst_time: 4.0, arrival_time: 0, memory_pages: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] }
-        ]
-    },
-    scheduling_overhead_lab: {
-        title: "CPU Quantum Overhead Optimization",
-        description: "Analyze how context switch overhead costs affect average turnaround times in Round Robin algorithms.",
-        assertions: [
-            { metric: "average_waiting_time", desc: "Average Wait Time must be under 15ms" },
-            { metric: "average_turnaround_time", desc: "Average Turnaround Time must be under 20ms" }
-        ],
-        config: { algorithm: "Round Robin", quantum: 1.0, context_switch_overhead: 0.8 },
-        scenarios: [
-            { process_id: "P1", burst_time: 3.0, arrival_time: 0 },
-            { process_id: "P2", burst_time: 4.0, arrival_time: 0.5 }
-        ]
-    },
-    deadlock_lab: {
-        title: "Transaction Deadlock Cycles",
-        description: "Trace transaction row acquisitions. Students are expected to configure a deadlock state manually.",
-        assertions: [
-            { metric: "deadlocks", desc: "Deadlock Wait-For cycle graph must contain at least 1 cycle" }
-        ],
-        config: { pool_size: 5 },
-        scenarios: []
-    }
-};
-
-let activeLabKey = "";
-
 function selectLabPreset() {
     const key = document.getElementById("lab-preset-select").value;
     activeLabKey = key;
@@ -636,7 +1503,6 @@ function selectLabPreset() {
     panel.classList.remove("hidden");
     submitBtn.classList.remove("hidden");
     
-    // Auto load configuration templates to editors
     if (key === "thrashing_lab" || key === "scheduling_overhead_lab") {
         document.getElementById("os-ram").value = preset.config.ram_size_mb || 16;
         if (preset.config.page_replacement_policy) {
@@ -664,36 +1530,55 @@ async function submitLabPreset() {
     
     try {
         const preset = presets[activeLabKey];
-        // Create full payload payload
-        const payload = {
-            module_id: activeLabKey,
-            title: preset.title,
-            system_type: activeLabKey === "deadlock_lab" ? "DBMS" : "OS",
-            configuration: preset.config,
-            scenarios: preset.scenarios,
-            assertions: preset.assertions.map(a => ({
-                metric: a.metric,
-                operator: a.metric === "is_thrashing" ? "==" : ">=",
-                value: a.metric === "is_thrashing" ? true : (a.metric === "page_fault_rate" ? 0.6 : 1)
-            }))
-        };
+        let payload;
         
-        // 1. POST schema registration
-        await fetch(`${API_URL}/schema/`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-        });
+        if (preset) {
+            payload = {
+                module_id: activeLabKey,
+                title: preset.title,
+                system_type: activeLabKey === "deadlock_lab" ? "DBMS" : "OS",
+                configuration: preset.config,
+                scenarios: preset.scenarios,
+                assertions: preset.assertions.map(a => ({
+                    metric: a.metric,
+                    operator: a.metric === "is_thrashing" ? "==" : ">=",
+                    value: a.metric === "is_thrashing" ? true : (a.metric === "page_fault_rate" ? 0.6 : 1)
+                }))
+            };
+        } else {
+            payload = {
+                module_id: activeLabKey,
+                title: "Custom Lab",
+                system_type: "OS",
+                configuration: {},
+                scenarios: [],
+                assertions: []
+            };
+        }
         
-        // 2. Submit student overrides configurations
+        if (preset) {
+            await fetch(`${API_URL}/schema/`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+                credentials: "include"
+            });
+        }
+        
         const studentConfig = {};
-        if (activeLabKey === "thrashing_lab" || activeLabKey === "scheduling_overhead_lab") {
+        const activeTab = document.querySelector(".nav-btn.active").dataset.tab;
+        
+        if (activeTab === "os-tab" || activeLabKey === "thrashing_lab" || activeLabKey === "scheduling_overhead_lab") {
             studentConfig.ram_size_mb = parseInt(document.getElementById("os-ram").value);
             studentConfig.page_replacement_policy = document.getElementById("os-policy").value;
             studentConfig.quantum = parseFloat(document.getElementById("os-quantum").value);
             studentConfig.context_switch_overhead = parseFloat(document.getElementById("os-overhead").value);
+        } else if (activeTab === "dbms-tab") {
+            studentConfig.index_type = document.getElementById("dbms-index").value;
+            studentConfig.storage_type = document.getElementById("dbms-storage").value;
+            studentConfig.buffer_pool_size = parseInt(document.getElementById("dbms-buffer").value);
+            studentConfig.pool_size = parseInt(document.getElementById("dbms-pool").value);
         } else {
-            // Lock manager check
             studentConfig.deadlocks = waitQueue.length > 0 ? 1 : 0;
         }
         
@@ -703,7 +1588,8 @@ async function submitLabPreset() {
             body: JSON.stringify({
                 module_id: activeLabKey,
                 student_config: studentConfig
-            })
+            }),
+            credentials: "include"
         });
         
         const data = await res.json();
@@ -743,8 +1629,6 @@ function renderLabResults(data) {
 // ----------------------------------------------------
 async function runSystemDiagnostic(metrics) {
     try {
-        const res = await fetch(`${API_URL}/ws/telemetry`); // Just dummy request or direct simulation metrics analyze
-        // Call local Expert Rules via fallback diagnostic client logic
         const desc = getDiagnosticLogs(metrics);
         const consoleEl = document.getElementById("diagnostic-console");
         consoleEl.innerHTML = desc;
@@ -768,7 +1652,7 @@ function getDiagnosticLogs(metrics) {
             diag += `<span style="color:var(--accent-green)"><strong>[OK] OS System Normal</strong></span>\n`;
             diag += `Execution complete within designed latency constraints.`;
         }
-    } else { // DBMS
+    } else {
         if (metrics.deadlocks && metrics.deadlocks.length > 0) {
             diag += `<span style="color:var(--accent-pink)"><strong>[CRITICAL] Deadlock Block Detected!</strong></span>\n`;
             diag += `Wait-For graph cycle paths detected: ${metrics.deadlocks[0].join(" ➜ ")}\n`;
@@ -803,12 +1687,10 @@ function connectWebSocket() {
     wsClient.onmessage = (event) => {
         const state = JSON.parse(event.data);
         
-        // Target telemetry values update
         targetCpu = state.cpu_load;
         targetMem = state.memory_pressure;
         targetLat = state.latency_ms;
         
-        // Show/hide Chaos banner
         const banner = document.getElementById("chaos-banner");
         const bannerText = document.getElementById("chaos-banner-text");
         
@@ -862,9 +1744,7 @@ function resetChaos() {
 // Telemetry Canvas Dial Rendering
 // ----------------------------------------------------
 function initTelemetryDials() {
-    // Canvas animation loop
     function animate() {
-        // Interpolate current values to target values
         curCpu += (targetCpu - curCpu) * 0.1;
         curMem += (targetMem - curMem) * 0.1;
         curLat += (targetLat - curLat) * 0.1;
@@ -889,14 +1769,12 @@ function drawDial(canvasId, val, maxVal, color, unit) {
     
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // 1. Draw track ring
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, 2 * Math.PI);
     ctx.strokeStyle = "rgba(255, 255, 255, 0.03)";
     ctx.lineWidth = 8;
     ctx.stroke();
     
-    // 2. Draw glow ring
     ctx.beginPath();
     const pct = val / maxVal;
     const endAngle = -0.5 * Math.PI + pct * 2 * Math.PI;
@@ -905,15 +1783,12 @@ function drawDial(canvasId, val, maxVal, color, unit) {
     ctx.lineWidth = 6;
     ctx.lineCap = "round";
     
-    // Shadow glow
     ctx.shadowColor = color;
     ctx.shadowBlur = 10;
     ctx.stroke();
     
-    // Reset shadow
     ctx.shadowBlur = 0;
     
-    // Update numerical value text in HTML overlay
     const valText = val.toFixed(0);
     const overlayId = canvasId.replace("-dial", "-val");
     const overlay = document.getElementById(overlayId);
@@ -928,14 +1803,13 @@ function drawDial(canvasId, val, maxVal, color, unit) {
 // ----------------------------------------------------
 function writeConsole(text, type = "info") {
     const consoleEl = document.getElementById("diagnostic-console");
-    let color = "#10B981"; // green
+    let color = "#10B981";
     if (type === "warning") color = "var(--accent-amber)";
     if (type === "error") color = "var(--accent-pink)";
     
     const timestamp = new Date().toLocaleTimeString();
     const formatted = `[${timestamp}] <span style="color:${color}">${text}</span><br/>`;
     
-    // Append but keep max rows
     consoleEl.innerHTML += formatted;
     consoleEl.scrollTop = consoleEl.scrollHeight;
 }

@@ -1,6 +1,6 @@
-# SysSandbox - User & Interactive Operations Manual
+# MENTORVEE - User & Interactive Operations Manual
 
-Welcome to **SysSandbox (Concept-to-System)**. This sandbox is an interactive educational engineering platform designed to bridge theoretical computer science concepts (operating systems scheduling, virtual memory paging, database access paths, and locking concurrency) with real-world system telemetry and failure engineering.
+Welcome to **MENTORVEE (Concept-to-System)**. This sandbox is an interactive educational engineering platform designed to bridge theoretical computer science concepts (operating systems scheduling, virtual memory paging, database access paths, and locking concurrency) with real-world system telemetry and failure engineering.
 
 ---
 
