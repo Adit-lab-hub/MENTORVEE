@@ -1,5 +1,5 @@
 import json
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import get_current_user, RoleChecker
@@ -155,4 +155,108 @@ def download_file(content_id: int, db: Session = Depends(get_db), current_user: 
     elif ext == "json":
         content_type = "application/json"
         
-    return Response(content=content.file_data, media_type=content_type, headers=headers)
+from app.schemas.content_schemas import MaterialAnalysisResponse, SourceUploadRequest
+from app.services.diagram_service import DiagramService
+
+@router.post("/extract-visuals", response_model=MaterialAnalysisResponse)
+async def extract_visuals(
+    request: Request,
+    file: Optional[UploadFile] = File(None),
+    raw_text: Optional[str] = Form(None),
+    title: Optional[str] = Form(None),
+    focus_topic: Optional[str] = Form(None)
+):
+    """Processes uploaded educational source material (PDF/TXT/MD/Raw Text) and produces
+    an interactive Mermaid flowchart and curated educational video references."""
+    file_bytes = None
+    filename = ""
+    content_type = request.headers.get("content-type", "")
+
+    # Check if JSON payload was sent
+    if "application/json" in content_type:
+        try:
+            body_json = await request.json()
+            if isinstance(body_json, dict):
+                raw_text = body_json.get("raw_text") or raw_text
+                title = body_json.get("title") or title
+                focus_topic = body_json.get("focus_topic") or focus_topic
+        except Exception:
+            pass
+
+    if file and file.filename:
+        filename = file.filename
+        ext = filename.split(".")[-1].lower() if "." in filename else ""
+        if ext not in settings.ALLOWED_UPLOAD_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file format '.{ext}'. Allowed: {', '.join(settings.ALLOWED_UPLOAD_EXTENSIONS)}"
+            )
+
+        file_bytes = await file.read()
+        max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+        if len(file_bytes) > max_bytes:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Uploaded file exceeds maximum limit of {settings.MAX_UPLOAD_SIZE_MB}MB"
+            )
+
+    if not file_bytes and not (raw_text and raw_text.strip()):
+        raise HTTPException(
+            status_code=400,
+            detail="Please provide a valid source file (.pdf, .txt, .md) or paste text notes."
+        )
+
+    try:
+        analysis = DiagramService.analyze_and_generate(
+            file_bytes=file_bytes,
+            raw_text=raw_text,
+            filename=filename,
+            title=title,
+            focus_topic=focus_topic
+        )
+        return analysis
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process and analyze source material: {str(e)}")
+
+@router.post("/{content_id}/analyze", response_model=MaterialAnalysisResponse)
+def analyze_stored_content(
+    content_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Analyzes an already uploaded class note or material stored in the database."""
+    content = db.query(Content).filter(Content.id == content_id).first()
+    if not content:
+        raise HTTPException(status_code=404, detail="Content not found")
+
+    # Check class access for students
+    if current_user.role == "student" and content.class_id != current_user.class_id:
+        raise HTTPException(status_code=403, detail="Access denied to this class resource")
+
+    focus_topic = None
+    if content.payload:
+        try:
+            p_data = json.loads(content.payload)
+            focus_topic = p_data.get("focus_topic")
+        except Exception:
+            pass
+
+    try:
+        if content.file_data:
+            analysis = DiagramService.analyze_and_generate(
+                file_bytes=content.file_data,
+                filename=content.file_name or "document.pdf",
+                title=content.title,
+                focus_topic=focus_topic
+            )
+        else:
+            analysis = DiagramService.analyze_and_generate(
+                raw_text=content.description or content.title,
+                title=content.title,
+                focus_topic=focus_topic
+            )
+        return analysis
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating visual analysis: {str(e)}")
