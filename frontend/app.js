@@ -33,6 +33,8 @@ document.addEventListener("DOMContentLoaded", () => {
     initProcessTable();
     initTelemetryDials();
     initVisualizer();
+    initAISimulationStudio();
+    initFacultyLabsEvaluation();
     
     // Bind Event Listeners
     document.getElementById("add-proc-btn").addEventListener("click", addProcessRow);
@@ -71,6 +73,8 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("teacher-content-type").addEventListener("change", toggleTeacherContentFields);
     document.getElementById("teacher-lab-system").addEventListener("change", toggleTeacherLabFields);
     document.getElementById("teacher-publish-btn").addEventListener("click", handleTeacherPublish);
+    const matPubBtn = document.getElementById("teacher-publish-material-btn");
+    if (matPubBtn) matPubBtn.addEventListener("click", handleTeacherPublish);
 
     // Admin Panel events
     document.getElementById("admin-sub-codes").addEventListener("click", () => switchAdminTab("codes"));
@@ -368,7 +372,10 @@ function initTabs() {
                 document.getElementById("visualizer-vis").classList.remove("hidden");
                 document.getElementById("tab-title").innerText = "Multi-Modal Concept Visualizer";
                 document.getElementById("tab-subtitle").innerText = "Ingest source materials to generate interactive flowcharts & curated video tutorials";
-
+            } else if (tabId === "lab-tab") {
+                document.getElementById("lab-vis").classList.remove("hidden");
+                document.getElementById("tab-title").innerText = "Faculty Labs Sandbox";
+                document.getElementById("tab-subtitle").innerText = "Evaluate and grade your system architectures against faculty assertion benchmarks";
             } else if (tabId === "student-content-tab") {
                 document.getElementById("tab-title").innerText = "Class Content Desk";
                 document.getElementById("tab-subtitle").innerText = "Access course files and test presets shared by your teacher";
@@ -530,12 +537,20 @@ window.loadCustomTeacherLab = (contentId, payloadStr) => {
 // ----------------------------------------------------
 function toggleTeacherContentFields() {
     const type = document.getElementById("teacher-content-type").value;
-    if (type === "material") {
-        document.getElementById("teacher-material-fields").classList.remove("hidden");
-        document.getElementById("teacher-lab-fields").classList.add("hidden");
-    } else {
-        document.getElementById("teacher-material-fields").classList.add("hidden");
-        document.getElementById("teacher-lab-fields").classList.remove("hidden");
+    const aiFields = document.getElementById("teacher-ai-lab-fields");
+    const manualFields = document.getElementById("teacher-lab-fields");
+    const matFields = document.getElementById("teacher-material-fields");
+
+    if (aiFields) aiFields.classList.add("hidden");
+    if (manualFields) manualFields.classList.add("hidden");
+    if (matFields) matFields.classList.add("hidden");
+
+    if (type === "ai-lab") {
+        if (aiFields) aiFields.classList.remove("hidden");
+    } else if (type === "lab") {
+        if (manualFields) manualFields.classList.remove("hidden");
+    } else if (type === "material") {
+        if (matFields) matFields.classList.remove("hidden");
     }
 }
 
@@ -2246,3 +2261,551 @@ window.analyzeContentInVisualizer = async function(contentId) {
 };
 
 window.openVideoModal = openVideoModal;
+
+// ====================================================
+// AI Simulation Studio (Text-to-JSON Schema) Engine
+// ====================================================
+let currentAISchema = null;
+
+function initAISimulationStudio() {
+    // Prompt Inspiration Pills
+    document.querySelectorAll(".ai-prompt-preset-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const prompt = btn.dataset.prompt;
+            const sys = btn.dataset.sys;
+            const promptEl = document.getElementById("teacher-ai-prompt");
+            const sysEl = document.getElementById("teacher-ai-system");
+            if (promptEl) promptEl.value = prompt;
+            if (sysEl && sys) sysEl.value = sys;
+        });
+    });
+
+    // Generate Button Click
+    const genBtn = document.getElementById("ai-generate-simulation-btn");
+    if (genBtn) {
+        genBtn.addEventListener("click", handleGenerateAISimulation);
+    }
+
+    // JSON Editor Actions
+    const copyBtn = document.getElementById("ai-copy-json-btn");
+    if (copyBtn) {
+        copyBtn.addEventListener("click", () => {
+            const code = document.getElementById("ai-generated-json-schema").value;
+            if (!code) return;
+            navigator.clipboard.writeText(code).then(() => {
+                const orig = copyBtn.innerText;
+                copyBtn.innerText = "✓ Copied!";
+                setTimeout(() => copyBtn.innerText = orig, 1800);
+            });
+        });
+    }
+
+    const formatBtn = document.getElementById("ai-format-json-btn");
+    if (formatBtn) {
+        formatBtn.addEventListener("click", () => {
+            const ta = document.getElementById("ai-generated-json-schema");
+            try {
+                const parsed = JSON.parse(ta.value);
+                ta.value = JSON.stringify(parsed, null, 2);
+            } catch (e) {
+                alert("Invalid JSON: " + e.message);
+            }
+        });
+    }
+
+    const validateBtn = document.getElementById("ai-validate-json-btn");
+    if (validateBtn) {
+        validateBtn.addEventListener("click", async () => {
+            const rawJson = document.getElementById("ai-generated-json-schema").value;
+            try {
+                const res = await fetch(`${API_URL}/schema/validate`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ raw_json: rawJson })
+                });
+                const data = await res.json();
+                if (data.valid) {
+                    alert("✓ Simulation Schema is strictly valid and verified!");
+                    if (data.schema) {
+                        currentAISchema = data.schema;
+                        renderAISimulationPreview(data.schema);
+                    }
+                } else {
+                    alert("❌ Schema Validation Error: " + data.message);
+                }
+            } catch (e) {
+                alert("Validation request failed: " + e.message);
+            }
+        });
+    }
+
+    // Live Test Runner Preview
+    const testBtn = document.getElementById("ai-test-simulation-btn");
+    if (testBtn) {
+        testBtn.addEventListener("click", handleTestSimulationPreview);
+    }
+
+    // Publish to Class
+    const pubBtn = document.getElementById("ai-publish-lab-btn");
+    if (pubBtn) {
+        pubBtn.addEventListener("click", handlePublishAILab);
+    }
+}
+
+async function handleGenerateAISimulation() {
+    const promptInput = document.getElementById("teacher-ai-prompt");
+    const prompt = promptInput ? promptInput.value.trim() : "";
+    const sys = document.getElementById("teacher-ai-system").value;
+    const diff = document.getElementById("teacher-ai-difficulty").value;
+
+    if (!prompt) {
+        alert("Please provide instructions or requirements for your simulation lab.");
+        if (promptInput) promptInput.focus();
+        return;
+    }
+
+    const loadingDiv = document.getElementById("ai-sim-loading");
+    const studioCard = document.getElementById("ai-simulation-studio-card");
+    const genBtn = document.getElementById("ai-generate-simulation-btn");
+
+    if (loadingDiv) loadingDiv.classList.remove("hidden");
+    if (genBtn) genBtn.disabled = true;
+
+    try {
+        writeConsole(`Prompting AI Simulation Architect: "${prompt.slice(0, 60)}..."`);
+        const res = await fetch(`${API_URL}/schema/generate-ai-simulation`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                prompt: prompt,
+                target_system: sys,
+                difficulty: diff
+            })
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ detail: "Generation failed" }));
+            throw new Error(err.detail || "Server error");
+        }
+
+        const data = await res.json();
+        currentAISchema = data.simulation_schema;
+
+        renderAISimulationPreview(currentAISchema, data.raw_json);
+        if (studioCard) {
+            studioCard.classList.remove("hidden");
+            studioCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+
+        writeConsole(`AI Simulation Schema Generated: "${currentAISchema.title}" (${currentAISchema.system_type}) with ${currentAISchema.assertions.length} assertions.`);
+    } catch (e) {
+        console.error("AI Simulation Generation failed:", e);
+        alert("Simulation Generation Error: " + e.message);
+    } finally {
+        if (loadingDiv) loadingDiv.classList.add("hidden");
+        if (genBtn) genBtn.disabled = false;
+    }
+}
+
+function renderAISimulationPreview(schema, rawJson) {
+    document.getElementById("ai-studio-title").innerText = schema.title || "Simulation Lab";
+    
+    const sysBadge = document.getElementById("ai-studio-sys-badge");
+    sysBadge.innerText = schema.system_type;
+    sysBadge.className = `badge badge-${schema.system_type.toLowerCase()}`;
+
+    const conceptBadge = document.getElementById("ai-studio-concept-badge");
+    conceptBadge.innerText = schema.concept_focus || "Systems Simulation";
+
+    document.getElementById("ai-studio-desc").innerText = schema.description || "";
+    document.getElementById("ai-studio-explanation-text").innerText = schema.explanation || "Balanced simulation workload generated according to prompt parameters.";
+
+    // Render Config tokens
+    const configDiv = document.getElementById("ai-studio-config-tokens");
+    configDiv.innerHTML = "";
+    if (schema.configuration) {
+        for (const [k, v] of Object.entries(schema.configuration)) {
+            const span = document.createElement("span");
+            span.className = "badge";
+            span.style.background = "rgba(255, 255, 255, 0.05)";
+            span.innerText = `${k.replace(/_/g, " ")}: ${v}`;
+            configDiv.appendChild(span);
+        }
+    }
+
+    // Render Scenarios tokens
+    const scenDiv = document.getElementById("ai-studio-scenarios-tokens");
+    scenDiv.innerHTML = "";
+    if (schema.scenarios) {
+        schema.scenarios.forEach((s, idx) => {
+            const span = document.createElement("span");
+            span.className = "badge badge-accent";
+            if (schema.system_type === "OS") {
+                span.innerText = `${s.process_id || `P${idx+1}`} (Burst: ${s.burst_time}ms, Pages: [${(s.memory_pages || []).join(",")}])`;
+            } else {
+                span.innerText = `${s.query_type || "Point"} Query (${(s.num_records || 100000).toLocaleString()} rows)`;
+            }
+            scenDiv.appendChild(span);
+        });
+    }
+
+    // Render Assertions List
+    const assertList = document.getElementById("ai-studio-assertions-list");
+    assertList.innerHTML = "";
+    if (schema.assertions) {
+        schema.assertions.forEach((a, idx) => {
+            const item = document.createElement("div");
+            item.className = "assertion-item-card";
+            item.innerHTML = `
+                <div>
+                    <span class="assertion-rule">${a.metric} ${a.operator} ${a.value}</span>
+                    <span style="color: var(--text-secondary); margin-left: 0.4rem; font-size: 0.75rem;">${a.description || ""}</span>
+                </div>
+                <span class="badge" style="background: rgba(0, 240, 255, 0.1); color: var(--accent-cyan);">Rule #${idx+1}</span>
+            `;
+            assertList.appendChild(item);
+        });
+    }
+
+    // Set JSON Editor Text
+    const editor = document.getElementById("ai-generated-json-schema");
+    if (editor) {
+        editor.value = rawJson || JSON.stringify(schema, null, 2);
+    }
+}
+
+async function handleTestSimulationPreview() {
+    const rawJson = document.getElementById("ai-generated-json-schema").value;
+    let schema;
+    try {
+        schema = JSON.parse(rawJson);
+    } catch (e) {
+        alert("Cannot test invalid JSON schema: " + e.message);
+        return;
+    }
+
+    const outputDiv = document.getElementById("ai-test-simulation-output");
+    const statusBadge = document.getElementById("ai-test-status-badge");
+    const metricsGrid = document.getElementById("ai-test-metrics-grid");
+    const feedbackDiv = document.getElementById("ai-test-assertions-feedback");
+
+    outputDiv.classList.remove("hidden");
+    statusBadge.innerText = "Running Sandbox...";
+    statusBadge.className = "badge badge-accent";
+    metricsGrid.innerHTML = "Simulating execution on MENTORVEE engine...";
+    feedbackDiv.innerHTML = "";
+
+    try {
+        const res = await fetch(`${API_URL}/schema/validate-submission`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                system_type: schema.system_type,
+                student_config: Object.assign({}, schema.configuration, { scenarios: schema.scenarios }),
+                assertions: schema.assertions
+            })
+        });
+
+        if (!res.ok) throw new Error("Validation engine request failed");
+        const data = await res.json();
+
+        statusBadge.innerText = data.passed ? "✓ Assertions Met" : "⚠️ Criteria Missed";
+        statusBadge.className = `badge ${data.passed ? "badge-active" : "badge-danger"}`;
+
+        metricsGrid.innerHTML = "";
+        for (const [k, v] of Object.entries(data.metrics)) {
+            const span = document.createElement("span");
+            span.className = "badge";
+            span.style.background = "rgba(255,255,255,0.06)";
+            span.innerText = `${k.replace(/_/g, " ")}: ${typeof v === "number" ? v.toFixed(2) : v}`;
+            metricsGrid.appendChild(span);
+        }
+
+        let fbHtml = `<div style="font-weight: 600; margin-bottom: 0.4rem; color: ${data.passed ? "#4ade80" : "#f87171"};">${data.feedback}</div>`;
+        fbHtml += `<ul style="list-style: none; padding-left: 0; display: flex; flex-direction: column; gap: 0.3rem;">`;
+        data.assertions_results.forEach(ar => {
+            fbHtml += `
+                <li style="font-size: 0.78rem; display: flex; justify-content: space-between; padding: 0.25rem 0.5rem; background: rgba(255,255,255,0.02); border-radius: 4px;">
+                    <span>${ar.passed ? "✅" : "❌"} <strong>${ar.metric}</strong> (${ar.description || `${ar.operator} ${ar.target_value}`})</span>
+                    <span style="font-family: monospace; color: ${ar.passed ? "#4ade80" : "#f87171"};">Actual: ${ar.actual_value}</span>
+                </li>
+            `;
+        });
+        fbHtml += `</ul>`;
+        feedbackDiv.innerHTML = fbHtml;
+
+    } catch (e) {
+        statusBadge.innerText = "Error";
+        statusBadge.className = "badge badge-danger";
+        metricsGrid.innerHTML = `<span style="color:var(--accent-red);">${e.message}</span>`;
+    }
+}
+
+async function handlePublishAILab() {
+    const classId = document.getElementById("teacher-class-select").value;
+    if (!classId) {
+        alert("Please select a target class before publishing.");
+        return;
+    }
+
+    const rawJson = document.getElementById("ai-generated-json-schema").value;
+    if (!rawJson) {
+        alert("No simulation schema to publish.");
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API_URL}/schema/publish-lab`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                class_id: parseInt(classId),
+                raw_json: rawJson
+            }),
+            credentials: "include"
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ detail: "Publishing failed" }));
+            throw new Error(err.detail || "Server error");
+        }
+
+        const data = await res.json();
+        alert(`🎉 ${data.message}`);
+        writeConsole(`Published AI simulation lab (ID #${data.content_id}) to Class #${classId}!`);
+        loadTeacherDashboard();
+    } catch (e) {
+        alert("Publishing failed: " + e.message);
+    }
+}
+
+// ----------------------------------------------------
+// Faculty Labs Preset Evaluation & Grading Logic
+// ----------------------------------------------------
+const LAB_PRESETS = {
+    os_thrash: {
+        system_type: "OS",
+        title: "OS Lab 1: Working Set Thrashing (FIFO vs LRU)",
+        description: "Configure process virtual memory page sequences to exceed RAM physical frame capacity (8MB) and trigger memory thrashing with page fault rate >= 60%.",
+        configuration: { ram_size_mb: 8, page_replacement_policy: "FIFO", algorithm: "Round Robin", quantum: 2.0, context_switch_overhead: 0.1 },
+        scenarios: [
+            { process_id: "P1", burst_time: 8.0, arrival_time: 0.0, priority: 1, memory_pages: [1, 2, 3, 4, 5, 6, 7, 8] },
+            { process_id: "P2", burst_time: 6.0, arrival_time: 1.0, priority: 2, memory_pages: [2, 3, 4, 5, 6, 7, 8, 9] }
+        ],
+        assertions: [
+            { metric: "page_fault_rate", operator: ">=", value: 0.6, description: "Page fault rate must exceed 60%" },
+            { metric: "is_thrashing", operator: "==", value: true, description: "System must trigger thrashing saturation state" }
+        ]
+    },
+    os_rr: {
+        system_type: "OS",
+        title: "OS Lab 2: Round Robin Quantum Preemption Optimization",
+        description: "Tune process scheduling and time quantum (1.5ms) to achieve average waiting time under 15ms and average turnaround time under 22ms.",
+        configuration: { ram_size_mb: 16, page_replacement_policy: "LRU", algorithm: "Round Robin", quantum: 1.5, context_switch_overhead: 0.15 },
+        scenarios: [
+            { process_id: "P1", burst_time: 5.0, arrival_time: 0.0, priority: 2, memory_pages: [1, 2] },
+            { process_id: "P2", burst_time: 3.0, arrival_time: 0.5, priority: 1, memory_pages: [2, 3] },
+            { process_id: "P3", burst_time: 7.0, arrival_time: 1.0, priority: 3, memory_pages: [1, 4] }
+        ],
+        assertions: [
+            { metric: "average_waiting_time", operator: "<=", value: 15.0, description: "Average waiting time must be <= 15ms" },
+            { metric: "average_turnaround_time", operator: "<=", value: 22.0, description: "Average turnaround time must be <= 22ms" }
+        ]
+    },
+    dbms_btree: {
+        system_type: "DBMS",
+        title: "DBMS Lab 1: B+ Tree Point Lookup vs HDD Seek",
+        description: "Benchmark point lookups on a 200,000 record table with SSD storage and B+ Tree indexing to achieve latency under 6ms and buffer cache hit ratio >= 50%.",
+        configuration: { storage_type: "SSD", index_type: "B-Tree", buffer_pool_size: 120, pool_size: 15 },
+        scenarios: [
+            { query_type: "point", num_records: 200000, range_fraction: 0.05, concurrent_requests: 4 }
+        ],
+        assertions: [
+            { metric: "estimated_latency_ms", operator: "<=", value: 6.0, description: "Estimated latency must remain <= 6ms" },
+            { metric: "cache_hit_ratio", operator: ">=", value: 0.5, description: "Cache hit ratio must be >= 50%" }
+        ]
+    },
+    dbms_scan: {
+        system_type: "DBMS",
+        title: "DBMS Lab 2: Large Range Scan Cost Minimization",
+        description: "Analyze sequential block reads across 150,000 rows on HDD/SSD storage. Keep range query latency under 25ms.",
+        configuration: { storage_type: "SSD", index_type: "Linear Scan", buffer_pool_size: 80, pool_size: 10 },
+        scenarios: [
+            { query_type: "range", num_records: 150000, range_fraction: 0.15, concurrent_requests: 2 }
+        ],
+        assertions: [
+            { metric: "estimated_latency_ms", operator: "<=", value: 25.0, description: "Latency must be <= 25ms" }
+        ]
+    }
+};
+
+let currentLabPreset = null;
+
+function initFacultyLabsEvaluation() {
+    const presetSelect = document.getElementById("lab-preset-select");
+    const submitBtn = document.getElementById("lab-submit-btn");
+
+    if (presetSelect) {
+        presetSelect.addEventListener("change", (e) => {
+            const key = e.target.value;
+            if (!key || !LAB_PRESETS[key]) {
+                document.getElementById("lab-instructions-panel").classList.add("hidden");
+                if (submitBtn) submitBtn.classList.add("hidden");
+                currentLabPreset = null;
+                return;
+            }
+
+            const lab = LAB_PRESETS[key];
+            currentLabPreset = lab;
+            activeLabKey = key;
+            activeLabSystemType = lab.system_type;
+
+            // Render instructions panel
+            document.getElementById("lab-title-text").innerText = lab.title;
+            document.getElementById("lab-desc-text").innerText = lab.description;
+
+            const list = document.getElementById("lab-assertions-list");
+            list.innerHTML = "";
+            lab.assertions.forEach(a => {
+                const li = document.createElement("li");
+                li.innerHTML = `<span>⚙️</span> <strong>${a.metric.replace(/_/g, " ")}</strong> ${a.operator} ${a.value} &mdash; <span style="color:var(--text-secondary);">${a.description || ""}</span>`;
+                list.appendChild(li);
+            });
+
+            document.getElementById("lab-instructions-panel").classList.remove("hidden");
+            if (submitBtn) submitBtn.classList.remove("hidden");
+
+            // Update Right Side Visualizer Header
+            document.getElementById("lab-active-name").innerText = lab.title;
+            document.getElementById("lab-active-instructions").innerText = lab.description;
+            document.getElementById("lab-eval-status-badge").innerText = "Ready to Evaluate";
+            document.getElementById("lab-eval-status-badge").className = "badge badge-accent";
+
+            // Load presets into simulator
+            if (lab.system_type === "OS") {
+                document.getElementById("os-ram").value = lab.configuration.ram_size_mb || 16;
+                document.getElementById("os-policy").value = lab.configuration.page_replacement_policy || "LRU";
+                document.getElementById("os-algo").value = lab.configuration.algorithm || "Round Robin";
+                document.getElementById("os-quantum").value = lab.configuration.quantum || 2.0;
+                document.getElementById("os-overhead").value = lab.configuration.context_switch_overhead || 0.1;
+                
+                activeProcesses = lab.scenarios.map(s => ({
+                    id: s.process_id,
+                    burst: s.burst_time,
+                    arrival: s.arrival_time || 0.0,
+                    priority: s.priority || 1,
+                    pages: s.memory_pages || []
+                }));
+                renderProcessTable();
+            } else {
+                document.getElementById("dbms-index").value = lab.configuration.index_type || "B-Tree";
+                document.getElementById("dbms-storage").value = lab.configuration.storage_type || "SSD";
+                document.getElementById("dbms-buffer").value = lab.configuration.buffer_pool_size || 100;
+                document.getElementById("dbms-pool").value = lab.configuration.pool_size || 10;
+                if (lab.scenarios && lab.scenarios.length > 0) {
+                    const s = lab.scenarios[0];
+                    document.getElementById("dbms-qtype").value = s.query_type || "point";
+                    document.getElementById("dbms-rows").value = s.num_records || 100000;
+                    document.getElementById("dbms-range-pct").value = (s.range_fraction || 0.1) * 100;
+                    document.getElementById("dbms-concurrent").value = s.concurrent_requests || 1;
+                }
+            }
+
+            writeConsole(`Loaded "${lab.title}". Adjust system parameters and click "Evaluate & Grade Solution".`);
+        });
+    }
+
+    if (submitBtn) {
+        submitBtn.addEventListener("click", handleEvaluateFacultyLab);
+    }
+}
+
+async function handleEvaluateFacultyLab() {
+    if (!currentLabPreset) {
+        alert("Please choose a lab assignment from the dropdown first.");
+        return;
+    }
+
+    const lab = currentLabPreset;
+    const sys = lab.system_type;
+    let studentConfig = {};
+
+    if (sys === "OS") {
+        studentConfig = {
+            ram_size_mb: parseInt(document.getElementById("os-ram").value),
+            page_replacement_policy: document.getElementById("os-policy").value,
+            algorithm: document.getElementById("os-algo").value,
+            quantum: parseFloat(document.getElementById("os-quantum").value),
+            context_switch_overhead: parseFloat(document.getElementById("os-overhead").value),
+            scenarios: activeProcesses.map(p => ({
+                process_id: p.id,
+                burst_time: p.burst,
+                arrival_time: p.arrival,
+                priority: p.priority,
+                memory_pages: p.pages
+            }))
+        };
+    } else {
+        studentConfig = {
+            index_type: document.getElementById("dbms-index").value,
+            storage_type: document.getElementById("dbms-storage").value,
+            buffer_pool_size: parseInt(document.getElementById("dbms-buffer").value),
+            pool_size: parseInt(document.getElementById("dbms-pool").value),
+            query_type: document.getElementById("dbms-qtype").value,
+            num_records: parseInt(document.getElementById("dbms-rows").value),
+            range_fraction: parseFloat(document.getElementById("dbms-range-pct").value) / 100.0,
+            concurrent_requests: parseInt(document.getElementById("dbms-concurrent").value)
+        };
+    }
+
+    try {
+        writeConsole(`Evaluating submission against grading assertions for "${lab.title}"...`);
+        const res = await fetch(`${API_URL}/schema/validate-submission`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                system_type: sys,
+                student_config: studentConfig,
+                assertions: lab.assertions
+            })
+        });
+
+        if (!res.ok) throw new Error("Evaluation request failed");
+        const result = await res.json();
+
+        // Switch to lab visualizer
+        document.getElementById("lab-vis").classList.remove("hidden");
+        const resultsCard = document.getElementById("lab-grading-results-card");
+        resultsCard.classList.remove("hidden");
+
+        const overallBadge = document.getElementById("lab-overall-grade-badge");
+        overallBadge.innerText = result.passed ? "🎉 PASSED (100%)" : "⚠️ FAILED";
+        overallBadge.className = `badge ${result.passed ? "badge-active" : "badge-danger"}`;
+
+        const evalStatusBadge = document.getElementById("lab-eval-status-badge");
+        evalStatusBadge.innerText = result.passed ? "Graded: Passed" : "Graded: Incomplete";
+        evalStatusBadge.className = `badge ${result.passed ? "badge-active" : "badge-danger"}`;
+
+        document.getElementById("lab-grading-feedback").innerHTML = `<strong>Feedback:</strong> ${result.feedback}`;
+
+        const tbody = document.getElementById("lab-assertions-eval-tbody");
+        tbody.innerHTML = "";
+        result.assertions_results.forEach(ar => {
+            const tr = document.createElement("tr");
+            tr.className = ar.passed ? "assertion-passed-row" : "assertion-failed-row";
+            tr.innerHTML = `
+                <td><strong>${ar.metric.replace(/_/g, " ")}</strong><div style="font-size:0.75rem; color:var(--text-secondary);">${ar.description || ""}</div></td>
+                <td style="font-family: monospace;">${ar.operator} ${ar.target_value}</td>
+                <td style="font-family: monospace; font-weight: 600;">${typeof ar.actual_value === "number" ? ar.actual_value.toFixed(2) : ar.actual_value}</td>
+                <td><span class="badge ${ar.passed ? "badge-active" : "badge-danger"}">${ar.passed ? "✓ Passed" : "✗ Failed"}</span></td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        writeConsole(`Grading Complete: ${result.passed ? "PASSED all criteria!" : "FAILED one or more assertions."}`);
+        resultsCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+    } catch (e) {
+        alert("Grading error: " + e.message);
+    }
+}
