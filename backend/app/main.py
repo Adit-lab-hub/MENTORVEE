@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import engine, Base, SessionLocal
 from app.models.models import ClassSubject, User
-from app.api.v1 import endpoints_os, endpoints_dbms, endpoints_schema, ws_telemetry, endpoints_auth, endpoints_admin, endpoints_content
+from app.api.v1 import endpoints_os, endpoints_dbms, ws_telemetry, endpoints_auth, endpoints_admin, endpoints_content
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from app.api.v1.endpoints_auth import limiter
@@ -25,8 +25,8 @@ def seed_db():
             
         # Seed default Admin account
         admin = db.query(User).filter(User.role == "admin").first()
+        from app.core.security import get_password_hash
         if not admin:
-            from app.core.security import get_password_hash
             admin_user = User(
                 id="admin-default-uuid-1122",
                 email="admin@collegename.edu",
@@ -37,6 +37,10 @@ def seed_db():
             db.add(admin_user)
             db.commit()
             print("--- [SEED] Default Admin created: admin@collegename.edu / AdminPassword123! ---")
+        elif admin.password_hash is None:
+            admin.password_hash = get_password_hash("AdminPassword123!")
+            db.commit()
+            print("--- [SEED] Fixed existing Admin password hash to Default ---")
     except Exception as e:
         print(f"[SEED ERROR] Could not seed database: {e}")
     finally:
@@ -68,7 +72,7 @@ app.include_router(endpoints_admin.router, prefix=f"{settings.API_V1_STR}/admin"
 app.include_router(endpoints_content.router, prefix=f"{settings.API_V1_STR}/content", tags=["Class Content"])
 app.include_router(endpoints_os.router, prefix=f"{settings.API_V1_STR}/os", tags=["OS Simulator"])
 app.include_router(endpoints_dbms.router, prefix=f"{settings.API_V1_STR}/dbms", tags=["DBMS Simulator"])
-app.include_router(endpoints_schema.router, prefix=f"{settings.API_V1_STR}/schema", tags=["Faculty Engine"])
+
 app.include_router(ws_telemetry.router, prefix=f"{settings.API_V1_STR}/ws", tags=["Telemetry"])
 
 @app.get("/")

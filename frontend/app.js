@@ -23,44 +23,9 @@ let currentUser = null;
 let currentClasses = [];
 let activeResetToken = "";
 let activeLabKey = "";
+let activeLabSystemType = "";
 
-// Default grading presets
-const presets = {
-    thrashing_lab: {
-        title: "Memory Thrashing Investigation",
-        description: "Configure process virtual page requests sequence to saturate physical memory frames. Check replacement policies LRU and FIFO.",
-        assertions: [
-            { metric: "page_fault_rate", desc: "Page Fault Rate must exceed 60% (>0.6)" },
-            { metric: "is_thrashing", desc: "System must enter Thrashing state == True" }
-        ],
-        config: { ram_size_mb: 8, page_replacement_policy: "FIFO" },
-        scenarios: [
-            { process_id: "P1", burst_time: 4.0, arrival_time: 0, memory_pages: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] }
-        ]
-    },
-    scheduling_overhead_lab: {
-        title: "CPU Quantum Overhead Optimization",
-        description: "Analyze how context switch overhead costs affect average turnaround times in Round Robin algorithms.",
-        assertions: [
-            { metric: "average_waiting_time", desc: "Average Wait Time must be under 15ms" },
-            { metric: "average_turnaround_time", desc: "Average Turnaround Time must be under 20ms" }
-        ],
-        config: { algorithm: "Round Robin", quantum: 1.0, context_switch_overhead: 0.8 },
-        scenarios: [
-            { process_id: "P1", burst_time: 3.0, arrival_time: 0 },
-            { process_id: "P2", burst_time: 4.0, arrival_time: 0.5 }
-        ]
-    },
-    deadlock_lab: {
-        title: "Transaction Deadlock Cycles",
-        description: "Trace transaction row acquisitions. Students are expected to configure a deadlock state manually.",
-        assertions: [
-            { metric: "deadlocks", desc: "Deadlock Wait-For cycle graph must contain at least 1 cycle" }
-        ],
-        config: { pool_size: 5 },
-        scenarios: []
-    }
-};
+
 
 // Initialize
 document.addEventListener("DOMContentLoaded", () => {
@@ -80,9 +45,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("lock-release-btn").addEventListener("click", releaseLock);
     document.getElementById("lock-clear-btn").addEventListener("click", clearLockManager);
     
-    // Faculty lab presets
-    document.getElementById("lab-preset-select").addEventListener("change", selectLabPreset);
-    document.getElementById("lab-submit-btn").addEventListener("click", submitLabPreset);
+
     
     // Chaos trigger bindings
     document.querySelectorAll(".chaos-pill").forEach(btn => {
@@ -405,10 +368,7 @@ function initTabs() {
                 document.getElementById("visualizer-vis").classList.remove("hidden");
                 document.getElementById("tab-title").innerText = "Multi-Modal Concept Visualizer";
                 document.getElementById("tab-subtitle").innerText = "Ingest source materials to generate interactive flowcharts & curated video tutorials";
-            } else if (tabId === "lab-tab") {
-                document.getElementById("lab-vis").classList.remove("hidden");
-                document.getElementById("tab-title").innerText = "Faculty Lab Configurations";
-                document.getElementById("tab-subtitle").innerText = "Run grading test suites against user-defined resource parameters";
+
             } else if (tabId === "student-content-tab") {
                 document.getElementById("tab-title").innerText = "Class Content Desk";
                 document.getElementById("tab-subtitle").innerText = "Access course files and test presets shared by your teacher";
@@ -503,6 +463,7 @@ window.loadCustomTeacherLab = (contentId, payloadStr) => {
     try {
         const p = JSON.parse(payloadStr.replace(/&quot;/g, '"'));
         activeLabKey = contentId.toString();
+        activeLabSystemType = p.system_type;
         
         writeConsole(`Custom Teacher Lab Loaded: ${p.title || "Custom Lab"}. Setting up configuration...`);
         
@@ -1482,158 +1443,6 @@ function detectDeadlocks() {
     } else {
         badge.classList.add("hidden");
         graphDiv.innerHTML = `<div class="graph-empty">No deadlock dependencies active</div>`;
-    }
-}
-
-// ----------------------------------------------------
-// Faculty Preset Scenarios
-// ----------------------------------------------------
-function selectLabPreset() {
-    const key = document.getElementById("lab-preset-select").value;
-    activeLabKey = key;
-    
-    const panel = document.getElementById("lab-instructions-panel");
-    const submitBtn = document.getElementById("lab-submit-btn");
-    
-    if (!key) {
-        panel.classList.add("hidden");
-        submitBtn.classList.add("hidden");
-        return;
-    }
-    
-    const preset = presets[key];
-    document.getElementById("lab-title-text").innerText = preset.title;
-    document.getElementById("lab-desc-text").innerText = preset.description;
-    
-    const list = document.getElementById("lab-assertions-list");
-    list.innerHTML = "";
-    preset.assertions.forEach(a => {
-        const li = document.createElement("li");
-        li.innerHTML = `<span>⚙️</span> ${a.desc}`;
-        list.appendChild(li);
-    });
-    
-    panel.classList.remove("hidden");
-    submitBtn.classList.remove("hidden");
-    
-    if (key === "thrashing_lab" || key === "scheduling_overhead_lab") {
-        document.getElementById("os-ram").value = preset.config.ram_size_mb || 16;
-        if (preset.config.page_replacement_policy) {
-            document.getElementById("os-policy").value = preset.config.page_replacement_policy;
-        }
-        if (preset.config.algorithm) {
-            document.getElementById("os-algo").value = preset.config.algorithm;
-        }
-        if (preset.config.quantum) {
-            document.getElementById("os-quantum").value = preset.config.quantum;
-        }
-        if (preset.config.context_switch_overhead) {
-            document.getElementById("os-overhead").value = preset.config.context_switch_overhead;
-        }
-        
-        activeProcesses = JSON.parse(JSON.stringify(preset.scenarios));
-        renderProcessTable();
-    }
-    writeConsole(`Loaded Lab Preset: ${preset.title}. Awaiting execution submission...`);
-}
-
-async function submitLabPreset() {
-    if (!activeLabKey) return;
-    writeConsole("Submitting Lab configurations for validation grading...");
-    
-    try {
-        const preset = presets[activeLabKey];
-        let payload;
-        
-        if (preset) {
-            payload = {
-                module_id: activeLabKey,
-                title: preset.title,
-                system_type: activeLabKey === "deadlock_lab" ? "DBMS" : "OS",
-                configuration: preset.config,
-                scenarios: preset.scenarios,
-                assertions: preset.assertions.map(a => ({
-                    metric: a.metric,
-                    operator: a.metric === "is_thrashing" ? "==" : ">=",
-                    value: a.metric === "is_thrashing" ? true : (a.metric === "page_fault_rate" ? 0.6 : 1)
-                }))
-            };
-        } else {
-            payload = {
-                module_id: activeLabKey,
-                title: "Custom Lab",
-                system_type: "OS",
-                configuration: {},
-                scenarios: [],
-                assertions: []
-            };
-        }
-        
-        if (preset) {
-            await fetch(`${API_URL}/schema/`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
-                credentials: "include"
-            });
-        }
-        
-        const studentConfig = {};
-        const activeTab = document.querySelector(".nav-btn.active").dataset.tab;
-        
-        if (activeTab === "os-tab" || activeLabKey === "thrashing_lab" || activeLabKey === "scheduling_overhead_lab") {
-            studentConfig.ram_size_mb = parseInt(document.getElementById("os-ram").value);
-            studentConfig.page_replacement_policy = document.getElementById("os-policy").value;
-            studentConfig.quantum = parseFloat(document.getElementById("os-quantum").value);
-            studentConfig.context_switch_overhead = parseFloat(document.getElementById("os-overhead").value);
-        } else if (activeTab === "dbms-tab") {
-            studentConfig.index_type = document.getElementById("dbms-index").value;
-            studentConfig.storage_type = document.getElementById("dbms-storage").value;
-            studentConfig.buffer_pool_size = parseInt(document.getElementById("dbms-buffer").value);
-            studentConfig.pool_size = parseInt(document.getElementById("dbms-pool").value);
-        } else {
-            studentConfig.deadlocks = waitQueue.length > 0 ? 1 : 0;
-        }
-        
-        const res = await fetch(`${API_URL}/schema/submit`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                module_id: activeLabKey,
-                student_config: studentConfig
-            }),
-            credentials: "include"
-        });
-        
-        const data = await res.json();
-        renderLabResults(data);
-
-    } catch (e) {
-        writeConsole(`Lab submission failed: ${e.message}`, "error");
-    }
-}
-
-function renderLabResults(data) {
-    const resDiv = document.getElementById("lab-result-div");
-    const banner = document.getElementById("lab-pass-fail-banner");
-    const details = document.getElementById("lab-failed-details");
-    
-    details.innerHTML = "";
-    resDiv.style.display = "block";
-    
-    if (data.passed) {
-        resDiv.className = "lab-result-panel passed card";
-        banner.innerText = "🏆 LAB GRADED: SUCCESSFUL PASS!";
-        details.innerHTML = `<div class="grading-item" style="color:var(--accent-green)">All grading assertion checks matched parameters. Submission files ready.</div>`;
-    } else {
-        resDiv.className = "lab-result-panel failed card";
-        banner.innerText = "❌ LAB GRADED: FAIL";
-        data.failed_assertions.forEach(f => {
-            const el = document.createElement("div");
-            el.className = "grading-item";
-            el.innerHTML = `Failed: Metric <strong>${f.metric}</strong> expected ${f.operator} ${f.expected}, but actual value was ${f.actual}`;
-            details.appendChild(el);
-        });
     }
 }
 

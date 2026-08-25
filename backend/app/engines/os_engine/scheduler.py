@@ -43,12 +43,17 @@ class OSSchedulerSimulator:
                             current_time += self.context_switch_overhead
                     pcb.dispatch(current_time)
                     start = current_time
-                    if pcb.memory_pages:
-                        page_num = pcb.memory_pages[pcb.page_index % len(pcb.memory_pages)]
-                        paging_sim.access_page(pid, page_num)
-                        pcb.page_index += 1
                     execution_time = pcb.remaining_time
-                    current_time += execution_time
+                    if pcb.memory_pages:
+                        access_count = max(1, int(execution_time))
+                        for _ in range(access_count):
+                            page_num = pcb.memory_pages[pcb.page_index % len(pcb.memory_pages)]
+                            paging_sim.access_page(pid, page_num)
+                            pcb.page_index += 1
+                    elapsed_time = execution_time
+                    if paging_sim.is_thrashing():
+                        elapsed_time = execution_time * 3.0
+                    current_time += elapsed_time
                     pcb.timeout(execution_time, current_time)
                     gantt_chart.append({
                         "start_time": start,
@@ -97,14 +102,17 @@ class OSSchedulerSimulator:
                             current_time += self.context_switch_overhead
                     pcb.dispatch(current_time)
                     start = current_time
-                    if pcb.memory_pages:
-                        page_num = pcb.memory_pages[pcb.page_index % len(pcb.memory_pages)]
-                        paging_sim.access_page(pid, page_num)
-                        pcb.page_index += 1
                     run_duration = min(self.quantum, pcb.remaining_time)
+                    if pcb.memory_pages:
+                        access_count = max(1, int(run_duration))
+                        for _ in range(access_count):
+                            page_num = pcb.memory_pages[pcb.page_index % len(pcb.memory_pages)]
+                            paging_sim.access_page(pid, page_num)
+                            pcb.page_index += 1
+                    elapsed_duration = run_duration
                     if paging_sim.is_thrashing():
-                        run_duration *= 3.0
-                    current_time += run_duration
+                        elapsed_duration = run_duration * 3.0
+                    current_time += elapsed_duration
                     pcb.timeout(run_duration, current_time)
                     gantt_chart.append({
                         "start_time": start,
@@ -158,12 +166,17 @@ class OSSchedulerSimulator:
                             current_time += self.context_switch_overhead
                     pcb.dispatch(current_time)
                     start = current_time
-                    if pcb.memory_pages:
-                        page_num = pcb.memory_pages[pcb.page_index % len(pcb.memory_pages)]
-                        paging_sim.access_page(pid, page_num)
-                        pcb.page_index += 1
                     execution_time = pcb.remaining_time
-                    current_time += execution_time
+                    if pcb.memory_pages:
+                        access_count = max(1, int(execution_time))
+                        for _ in range(access_count):
+                            page_num = pcb.memory_pages[pcb.page_index % len(pcb.memory_pages)]
+                            paging_sim.access_page(pid, page_num)
+                            pcb.page_index += 1
+                    elapsed_time = execution_time
+                    if paging_sim.is_thrashing():
+                        elapsed_time = execution_time * 3.0
+                    current_time += elapsed_time
                     pcb.timeout(execution_time, current_time)
                     gantt_chart.append({
                         "start_time": start,
@@ -227,14 +240,17 @@ class OSSchedulerSimulator:
                             current_time += self.context_switch_overhead
                     pcb.dispatch(current_time)
                     start = current_time
-                    if pcb.memory_pages:
-                        page_num = pcb.memory_pages[pcb.page_index % len(pcb.memory_pages)]
-                        paging_sim.access_page(selected_pid, page_num)
-                        pcb.page_index += 1
                     run_duration = min(quantum_limit, pcb.remaining_time)
+                    if pcb.memory_pages:
+                        access_count = max(1, int(run_duration))
+                        for _ in range(access_count):
+                            page_num = pcb.memory_pages[pcb.page_index % len(pcb.memory_pages)]
+                            paging_sim.access_page(selected_pid, page_num)
+                            pcb.page_index += 1
+                    elapsed_duration = run_duration
                     if paging_sim.is_thrashing():
-                        run_duration *= 3.0
-                    current_time += run_duration
+                        elapsed_duration = run_duration * 3.0
+                    current_time += elapsed_duration
                     pcb.timeout(run_duration, current_time)
                     gantt_chart.append({
                         "start_time": start,

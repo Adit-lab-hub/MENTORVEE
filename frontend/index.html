@@ -125,9 +125,7 @@
                 <button class="nav-btn" data-tab="visualizer-tab" id="nav-visualizer-btn">
                     <span class="btn-icon">🗺️</span> Concept Visualizer
                 </button>
-                <button class="nav-btn" data-tab="lab-tab" id="nav-lab-btn">
-                    <span class="btn-icon">🎓</span> Faculty Labs
-                </button>
+
                 
                 <!-- Role-Based Tabs -->
                 <button class="nav-btn hidden" id="nav-student-btn" data-tab="student-content-tab">
@@ -327,28 +325,7 @@
                         <button class="btn-secondary" id="lock-clear-btn" style="margin-top: 1rem; width: 100%;">Clear Lock Manager</button>
                     </div>
 
-                    <!-- Faculty Labs -->
-                    <div class="tab-content hidden" id="lab-tab">
-                        <h3>Laboratory Sandbox Presets</h3>
-                        <div class="form-group">
-                            <label>Select Lab Preset</label>
-                            <select id="lab-preset-select">
-                                <option value="">-- Select Lab Preset --</option>
-                                <option value="thrashing_lab">Lab 1: Memory Thrashing Investigation</option>
-                                <option value="scheduling_overhead_lab">Lab 2: CPU Quantum Overhead Optimization</option>
-                                <option value="deadlock_lab">Lab 3: Transaction Deadlock Cycles</option>
-                            </select>
-                        </div>
-                        <div class="lab-instructions card hidden" id="lab-instructions-panel">
-                            <h4 id="lab-title-text">Lab Title</h4>
-                            <p id="lab-desc-text" class="section-desc">Instructions...</p>
-                            <h5>Grading Assertions:</h5>
-                            <ul class="assertion-list" id="lab-assertions-list">
-                                <!-- Dynamic List -->
-                            </ul>
-                        </div>
-                        <button class="btn-primary hidden" id="lab-submit-btn">Validate Lab Submission</button>
-                    </div>
+
 
                 
                     <!-- Student Workspace Tab -->
@@ -796,16 +773,7 @@
                             </div>
                         </div>
 
-                        <!-- Lab Validation Output -->
-                        <!-- Lab Validation Output -->
-                        <div class="vis-content hidden" id="lab-vis">
-                            <div class="lab-result-panel card" id="lab-result-div" style="display:none;">
-                                <h3 id="lab-pass-fail-banner">Lab Submission Status</h3>
-                                <div class="grading-summary" id="lab-failed-details">
-                                    <!-- Failing reasons -->
-                                </div>
-                            </div>
-                        </div>
+
 
                         <!-- Concept Visualizer Output Panel -->
                         <div class="vis-content hidden" id="visualizer-vis">
