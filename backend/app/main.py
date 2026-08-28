@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import engine, Base, SessionLocal
 from app.models.models import ClassSubject, User
-from app.api.v1 import endpoints_os, endpoints_dbms, ws_telemetry, endpoints_auth, endpoints_admin, endpoints_content
+from app.api.v1 import endpoints_os, endpoints_dbms, ws_telemetry, endpoints_auth, endpoints_admin, endpoints_content, endpoints_schema
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from app.api.v1.endpoints_auth import limiter
@@ -70,6 +70,8 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.include_router(endpoints_auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["Authentication"])
 app.include_router(endpoints_admin.router, prefix=f"{settings.API_V1_STR}/admin", tags=["Administration"])
 app.include_router(endpoints_content.router, prefix=f"{settings.API_V1_STR}/content", tags=["Class Content"])
+app.include_router(endpoints_schema.router, prefix=f"{settings.API_V1_STR}/schema", tags=["Faculty Engine"])
+app.include_router(endpoints_schema.router, prefix=f"{settings.API_V1_STR}/simulation", tags=["AI Simulation Engine"])
 app.include_router(endpoints_os.router, prefix=f"{settings.API_V1_STR}/os", tags=["OS Simulator"])
 app.include_router(endpoints_dbms.router, prefix=f"{settings.API_V1_STR}/dbms", tags=["DBMS Simulator"])
 

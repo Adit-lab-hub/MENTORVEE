@@ -125,8 +125,13 @@
                 <button class="nav-btn" data-tab="visualizer-tab" id="nav-visualizer-btn">
                     <span class="btn-icon">🗺️</span> Concept Visualizer
                 </button>
+                <button class="nav-btn" data-tab="lab-tab" id="nav-lab-btn">
+                    <span class="btn-icon">🎓</span> Faculty Labs
+                </button>
+                <button class="nav-btn" data-tab="ai-sim-tab" id="nav-ai-sim-btn">
+                    <span class="btn-icon">✨</span> AI Simulation Studio
+                </button>
 
-                
                 <!-- Role-Based Tabs -->
                 <button class="nav-btn hidden" id="nav-student-btn" data-tab="student-content-tab">
                     <span class="btn-icon">📚</span> Class Workspace
@@ -325,9 +330,92 @@
                         <button class="btn-secondary" id="lock-clear-btn" style="margin-top: 1rem; width: 100%;">Clear Lock Manager</button>
                     </div>
 
+                    <!-- Faculty Labs Tab -->
+                    <div class="tab-content hidden" id="lab-tab">
+                        <h3>Faculty Lab Modules</h3>
+                        <p class="section-desc">Test your system architectures and configuration parameters against grading assertions defined by faculty.</p>
+                        
+                        <div class="form-group">
+                            <label>Select Lab Assignment / Preset</label>
+                            <select id="lab-preset-select">
+                                <option value="">-- Choose an Assignment --</option>
+                                <option value="os_thrash">OS Lab 1: Working Set Thrashing (FIFO vs LRU)</option>
+                                <option value="os_rr">OS Lab 2: Round Robin Quantum Preemption Optimization</option>
+                                <option value="dbms_btree">DBMS Lab 1: B+ Tree Point Lookup vs HDD Seek</option>
+                                <option value="dbms_scan">DBMS Lab 2: Large Range Scan Cost Minimization</option>
+                            </select>
+                        </div>
 
+                        <div id="lab-instructions-panel" class="card hidden" style="margin-top: 1rem; border-left: 3px solid var(--accent-cyan);">
+                            <h4 id="lab-title-text" style="color: var(--accent-cyan); margin-bottom: 0.5rem;">Lab Title</h4>
+                            <p id="lab-desc-text" style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;"></p>
+                            <div style="font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem;">Grading Criteria & Assertions:</div>
+                            <ul id="lab-assertions-list" class="assertions-list" style="font-size: 0.8rem; display: flex; flex-direction: column; gap: 0.4rem; padding-left: 0.5rem; list-style: none;">
+                            </ul>
+                        </div>
 
-                
+                        <button class="btn-primary hidden" id="lab-submit-btn" style="margin-top: 1rem; width: 100%;">🔬 Evaluate & Grade Solution</button>
+                    </div>
+
+                    <!-- Dedicated AI Simulation Generator Tab -->
+                    <div class="tab-content hidden" id="ai-sim-tab">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                            <h3>AI Simulation Studio</h3>
+                            <span class="badge badge-accent">Google Gemini LLM</span>
+                        </div>
+                        <p class="section-desc">Transform faculty natural language simulation requirements into strictly typed, executable JSON simulation blueprints for OS & DBMS engines.</p>
+
+                        <div class="ai-prompt-box card" style="margin-top: 1rem;">
+                            <div class="ai-prompt-header">
+                                <span class="ai-badge">🤖 Gemini Simulation Architect</span>
+                                <span class="ai-subtext">Natural Language to Executable Schema</span>
+                            </div>
+
+                            <div class="form-group" style="margin-top: 0.75rem;">
+                                <label>Simulation Requirements & Educational Objective</label>
+                                <textarea id="standalone-ai-prompt" rows="4" placeholder="Describe your simulation scenario in plain English. For example:&#10;'Create an OS memory lab with 3 processes demonstrating LRU page thrashing when RAM is 8MB and fault rate exceeds 60%' or 'Design a B+ Tree index lab with 200,000 records on SSD storage testing point lookup latency under 5ms.'"></textarea>
+                            </div>
+
+                            <!-- Quick Inspiration Pills -->
+                            <div class="preset-pills-container" style="margin-top: 0.5rem;">
+                                <span class="preset-pill-label">💡 Prompt Inspirations:</span>
+                                <div class="preset-pills">
+                                    <button type="button" class="preset-pill standalone-prompt-preset-btn" data-prompt="Create an OS memory simulation with 3 processes demonstrating severe LRU page thrashing when RAM is limited to 8MB and page fault rate exceeds 60%." data-sys="OS">⚡ OS Thrashing Study</button>
+                                    <button type="button" class="preset-pill standalone-prompt-preset-btn" data-prompt="Design a Round Robin CPU scheduling lab with 4 processes and quantum of 1.5ms to evaluate average turnaround time and preemption overheads." data-sys="OS">⏱️ Round Robin Quantum</button>
+                                    <button type="button" class="preset-pill standalone-prompt-preset-btn" data-prompt="Benchmark B+ Tree indexing point lookups vs Linear Scan across 200,000 records on SSD storage with cache hit ratio above 50%." data-sys="DBMS">🌲 B+ Tree vs Full Scan</button>
+                                    <button type="button" class="preset-pill standalone-prompt-preset-btn" data-prompt="Build a high concurrency database query simulation testing connection pool queue wait times under 5 concurrent transactions on HDD." data-sys="DBMS">🔒 Concurrency & Pool</button>
+                                    <button type="button" class="preset-pill standalone-prompt-preset-btn" data-prompt="Create a multi-process Priority scheduling lab with 3 processes evaluating waiting time optimization." data-sys="OS">🔄 Priority Scheduling</button>
+                                </div>
+                            </div>
+
+                            <div class="form-row" style="margin-top: 0.75rem;">
+                                <div class="form-group">
+                                    <label>Target Domain / System</label>
+                                    <select id="standalone-ai-system">
+                                        <option value="auto">Auto-Detect Domain</option>
+                                        <option value="OS">Operating Systems (CPU / Memory)</option>
+                                        <option value="DBMS">Database Management (Cost Model)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Target Difficulty</label>
+                                    <select id="standalone-ai-difficulty">
+                                        <option value="beginner">Beginner</option>
+                                        <option value="intermediate" selected>Intermediate</option>
+                                        <option value="advanced">Advanced</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <button class="btn-primary" id="standalone-ai-generate-btn" style="margin-top: 0.75rem; width: 100%;">✨ Generate Simulation Blueprint</button>
+
+                            <div id="standalone-ai-loading" class="hidden" style="text-align: center; margin-top: 1rem; color: var(--accent-cyan);">
+                                <div class="loading-spinner"></div>
+                                <p style="font-size: 0.85rem; margin-top: 0.5rem;">Google Gemini is synthesizing executable JSON simulation schema...</p>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Student Workspace Tab -->
                     <div class="tab-content hidden" id="student-content-tab">
                         <h3>My Scoped Class Content</h3>
@@ -344,8 +432,11 @@
 
                     <!-- Teacher Dashboard Tab -->
                     <div class="tab-content hidden" id="teacher-tab">
-                        <h3>Publish Class Material & Labs</h3>
-                        <p class="section-desc">Create and upload educational resources or interactive lab scenarios for assigned subjects.</p>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                            <h3>Faculty Studio & Publishing</h3>
+                            <span class="badge badge-accent">AI Powered</span>
+                        </div>
+                        <p class="section-desc">Generate intelligent interactive simulations with AI, create manual lab assignments, or publish lecture resources.</p>
                         
                         <div class="form-group">
                             <label>Target Class/Subject</label>
@@ -355,15 +446,134 @@
                         </div>
 
                         <div class="form-group">
-                            <label>Publication Type</label>
+                            <label>Creation Mode</label>
                             <select id="teacher-content-type">
-                                <option value="material">Educational Material (Note / File Upload)</option>
-                                <option value="lab">Custom Simulation Lab Preset</option>
+                                <option value="ai-lab" selected>✨ AI Simulation Studio (Text-to-JSON Schema)</option>
+                                <option value="lab">⚙️ Custom Manual Lab Creator</option>
+                                <option value="material">📄 Educational Material (Note / File Upload)</option>
                             </select>
                         </div>
 
+                        <!-- AI Simulation Generator Studio -->
+                        <div id="teacher-ai-lab-fields">
+                            <div class="ai-prompt-box card">
+                                <div class="ai-prompt-header">
+                                    <span class="ai-badge">🤖 AI Simulation Architect</span>
+                                    <span class="ai-subtext">Converts natural text to executable JSON simulation schema</span>
+                                </div>
+
+                                <div class="form-group" style="margin-top: 0.75rem;">
+                                    <label>Simulation Prompt / Scenario Requirements</label>
+                                    <textarea id="teacher-ai-prompt" rows="4" placeholder="Describe your simulation scenario in plain English. For example:&#10;'Create an OS lab with 3 processes demonstrating LRU page thrashing when RAM is 8MB and fault rate exceeds 60%' or 'Design a B+ Tree index lab with 200,000 records on SSD storage testing point lookup latency under 5ms.'"></textarea>
+                                </div>
+
+                                <!-- Quick Inspiration Pills -->
+                                <div class="preset-pills-container" style="margin-top: 0.5rem;">
+                                    <span class="preset-pill-label">💡 Prompt Inspirations:</span>
+                                    <div class="preset-pills">
+                                        <button type="button" class="preset-pill ai-prompt-preset-btn" data-prompt="Create an OS memory simulation with 3 processes demonstrating severe LRU page thrashing when RAM is limited to 8MB and page fault rate exceeds 60%." data-sys="OS">⚡ OS Thrashing Study</button>
+                                        <button type="button" class="preset-pill ai-prompt-preset-btn" data-prompt="Design a Round Robin CPU scheduling lab with 4 processes and quantum of 1.5ms to evaluate average turnaround time and preemption overheads." data-sys="OS">⏱️ Round Robin Quantum</button>
+                                        <button type="button" class="preset-pill ai-prompt-preset-btn" data-prompt="Benchmark B+ Tree indexing point lookups vs Linear Scan across 200,000 records on SSD storage with cache hit ratio above 50%." data-sys="DBMS">🌲 B+ Tree vs Full Scan</button>
+                                        <button type="button" class="preset-pill ai-prompt-preset-btn" data-prompt="Build a high concurrency database query simulation testing connection pool queue wait times under 5 concurrent transactions on HDD." data-sys="DBMS">🔒 Concurrency & Pool</button>
+                                        <button type="button" class="preset-pill ai-prompt-preset-btn" data-prompt="Create a multi-process Priority scheduling lab with 3 processes evaluating waiting time optimization." data-sys="OS">🔄 Priority Scheduling</button>
+                                    </div>
+                                </div>
+
+                                <div class="form-row" style="margin-top: 0.75rem;">
+                                    <div class="form-group">
+                                        <label>Target System</label>
+                                        <select id="teacher-ai-system">
+                                            <option value="auto">Auto-Detect Domain</option>
+                                            <option value="OS">Operating Systems (CPU / Memory)</option>
+                                            <option value="DBMS">Database Management (Cost Model)</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Target Difficulty</label>
+                                        <select id="teacher-ai-difficulty">
+                                            <option value="beginner">Beginner</option>
+                                            <option value="intermediate" selected>Intermediate</option>
+                                            <option value="advanced">Advanced</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <button class="btn-primary" id="ai-generate-simulation-btn" style="margin-top: 0.75rem; width: 100%;">✨ Generate Simulation Schema with AI</button>
+
+                                <div id="ai-sim-loading" class="hidden" style="text-align: center; margin-top: 1rem; color: var(--accent-cyan);">
+                                    <div class="loading-spinner"></div>
+                                    <p style="font-size: 0.85rem; margin-top: 0.5rem;">AI is analyzing prompt requirements and synthesizing executable simulation schema...</p>
+                                </div>
+                            </div>
+
+                            <!-- Generated Simulation Schema Studio Card -->
+                            <div id="ai-simulation-studio-card" class="card hidden" style="margin-top: 1.25rem; border-top: 3px solid var(--accent-cyan);">
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+                                    <div>
+                                        <h4 id="ai-studio-title" style="color: var(--accent-cyan); font-size: 1.05rem;">Generated Lab Title</h4>
+                                        <span id="ai-studio-sys-badge" class="badge">OS</span>
+                                        <span id="ai-studio-concept-badge" class="badge badge-accent" style="margin-left: 0.25rem;">Memory Paging</span>
+                                    </div>
+                                    <span class="badge" style="background: rgba(34, 197, 94, 0.15); color: #22c55e; border: 1px solid #22c55e;">✓ Schema Validated</span>
+                                </div>
+
+                                <p id="ai-studio-desc" style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem;"></p>
+
+                                <div id="ai-studio-explanation-box" class="card" style="background: rgba(0, 240, 255, 0.05); padding: 0.6rem; margin-bottom: 0.75rem; font-size: 0.8rem; border-left: 2px solid var(--accent-cyan);">
+                                    <strong>💡 AI Design Rationale:</strong> <span id="ai-studio-explanation-text"></span>
+                                </div>
+
+                                <!-- Schema Component Summary Cards -->
+                                <div class="schema-breakdown-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin-bottom: 0.75rem;">
+                                    <div class="card" style="padding: 0.6rem;">
+                                        <div style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 600; margin-bottom: 0.25rem;">⚙️ CONFIGURATION</div>
+                                        <div id="ai-studio-config-tokens" style="font-size: 0.8rem; display: flex; flex-wrap: wrap; gap: 0.3rem;"></div>
+                                    </div>
+                                    <div class="card" style="padding: 0.6rem;">
+                                        <div style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 600; margin-bottom: 0.25rem;">📊 WORKLOAD SCENARIOS</div>
+                                        <div id="ai-studio-scenarios-tokens" style="font-size: 0.8rem; display: flex; flex-wrap: wrap; gap: 0.3rem;"></div>
+                                    </div>
+                                </div>
+
+                                <!-- Assertions Rules List -->
+                                <div class="card" style="padding: 0.6rem; margin-bottom: 0.75rem;">
+                                    <div style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 600; margin-bottom: 0.4rem;">🎯 AUTOMATED GRADING CRITERIA</div>
+                                    <div id="ai-studio-assertions-list" style="display: flex; flex-direction: column; gap: 0.3rem;"></div>
+                                </div>
+
+                                <!-- Interactive JSON Schema Code Editor Accordion -->
+                                <div class="json-editor-wrapper" style="margin-bottom: 0.75rem;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                                        <label style="font-size: 0.8rem; font-weight: 600;">Simulation JSON Schema (Editable)</label>
+                                        <div style="display: flex; gap: 0.3rem;">
+                                            <button type="button" class="btn-sm" id="ai-copy-json-btn" title="Copy to clipboard">📋 Copy</button>
+                                            <button type="button" class="btn-sm" id="ai-validate-json-btn" title="Validate JSON syntax">🛠️ Validate</button>
+                                            <button type="button" class="btn-sm" id="ai-format-json-btn" title="Reformat JSON">✨ Format</button>
+                                        </div>
+                                    </div>
+                                    <textarea id="ai-generated-json-schema" rows="8" spellcheck="false" class="code-editor-textarea"></textarea>
+                                </div>
+
+                                <!-- Action Buttons -->
+                                <div class="btn-group" style="margin-top: 0.75rem;">
+                                    <button type="button" class="btn-secondary" id="ai-test-simulation-btn" style="flex: 1;">▶ Test Simulation Preview</button>
+                                    <button type="button" class="btn-primary" id="ai-publish-lab-btn" style="flex: 1.5;">🚀 Publish Lab to Class</button>
+                                </div>
+
+                                <!-- Live Simulation Test Output Drawer -->
+                                <div id="ai-test-simulation-output" class="card hidden" style="margin-top: 0.75rem; background: rgba(0,0,0,0.4); border: 1px solid var(--border-color);">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                        <h5 style="margin: 0; color: var(--accent-cyan);">Execution Sandbox Verification</h5>
+                                        <span id="ai-test-status-badge" class="badge">Running</span>
+                                    </div>
+                                    <div id="ai-test-metrics-grid" style="display: flex; flex-wrap: wrap; gap: 0.4rem; font-size: 0.8rem; margin-bottom: 0.5rem;"></div>
+                                    <div id="ai-test-assertions-feedback" style="font-size: 0.8rem;"></div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Educational Material Forms -->
-                        <div id="teacher-material-fields">
+                        <div id="teacher-material-fields" class="hidden">
                             <div class="form-group">
                                 <label>Title</label>
                                 <input type="text" id="material-title" placeholder="e.g. Operating Systems Chapter 3 Note">
@@ -373,12 +583,13 @@
                                 <textarea id="material-desc" rows="4" placeholder="Brief notes for students..."></textarea>
                             </div>
                             <div class="form-group">
-                                <label>Upload File (PDF/TXT/JSON, Max 5MB)</label>
+                                <label>Upload File (PDF/TXT/JSON, Max 10MB)</label>
                                 <input type="file" id="material-file">
                             </div>
+                            <button class="btn-primary" id="teacher-publish-material-btn" style="margin-top: 1rem;">Publish Material</button>
                         </div>
 
-                        <!-- Custom Lab Creator Wizard (simplified presets) -->
+                        <!-- Custom Manual Lab Creator Wizard -->
                         <div id="teacher-lab-fields" class="hidden">
                             <div class="form-group">
                                 <label>Lab Title</label>
@@ -447,11 +658,10 @@
                                     </select>
                                 </div>
                             </div>
+                            <button class="btn-primary" id="teacher-publish-btn" style="margin-top: 1rem;">Publish Manual Lab</button>
                         </div>
 
-                        <button class="btn-primary" id="teacher-publish-btn" style="margin-top: 1rem;">Publish Content</button>
-
-                        <h4 style="margin-top: 2rem; margin-bottom: 0.75rem;">Published Class Materials</h4>
+                        <h4 style="margin-top: 2rem; margin-bottom: 0.75rem;">Published Class Materials & Labs</h4>
                         <div class="content-list-container" id="teacher-content-list" style="max-height: 250px; overflow-y: auto;">
                             <!-- List of published items -->
                         </div>
@@ -773,6 +983,132 @@
                             </div>
                         </div>
 
+
+
+                        <!-- Faculty Lab Grading Visualizer Output Panel -->
+                        <div class="vis-content hidden" id="lab-vis">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                                <h4>🎓 Faculty Lab Evaluation Console</h4>
+                                <span id="lab-eval-status-badge" class="badge">Awaiting Evaluation</span>
+                            </div>
+
+                            <div class="card" style="margin-bottom: 1.25rem; background: rgba(0, 240, 255, 0.04); border-left: 3px solid var(--accent-cyan);">
+                                <h5 id="lab-active-name" style="color: var(--accent-cyan); margin-bottom: 0.25rem;">No Active Lab Selected</h5>
+                                <p id="lab-active-instructions" style="font-size: 0.85rem; color: var(--text-secondary); margin: 0;">
+                                    Choose an assignment from the Faculty Labs tab or click "Load Lab Simulator" from your Class Workspace.
+                                </p>
+                            </div>
+
+                            <div id="lab-grading-results-card" class="card hidden" style="margin-bottom: 1.25rem;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                                    <h5 style="margin: 0;">Grading Assertion Breakdown</h5>
+                                    <span id="lab-overall-grade-badge" class="badge">Passed</span>
+                                </div>
+                                <div id="lab-grading-feedback" style="font-size: 0.85rem; margin-bottom: 0.75rem;"></div>
+                                
+                                <table class="config-table" id="lab-assertions-eval-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Rule / Metric</th>
+                                            <th>Criteria</th>
+                                            <th>Your System Value</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="lab-assertions-eval-tbody">
+                                        <!-- Dynamic grading rows -->
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                                <button type="button" class="btn-sm tool-btn" onclick="document.querySelector('.nav-btn[data-tab=\'os-tab\']').click()">💻 Go to OS Simulator</button>
+                                <button type="button" class="btn-sm tool-btn" onclick="document.querySelector('.nav-btn[data-tab=\'dbms-tab\']').click()">🗄️ Go to DBMS Simulator</button>
+                            </div>
+                        </div>
+
+                        <!-- Dedicated AI Simulation Schema Preview & Sandbox Output Panel -->
+                        <div class="vis-content hidden" id="ai-sim-vis">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                                <h4>✨ AI Simulation Blueprint Canvas</h4>
+                                <span id="standalone-studio-status-badge" class="badge">Awaiting Prompt</span>
+                            </div>
+
+                            <!-- Placeholder when no simulation is generated yet -->
+                            <div id="standalone-studio-empty" class="card" style="text-align: center; padding: 2.5rem 1.5rem; background: rgba(0, 240, 255, 0.02); border: 1px dashed var(--border-color);">
+                                <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">⚡</div>
+                                <h4 style="color: var(--accent-cyan); margin-bottom: 0.5rem;">Ready to Synthesize Interactive Simulations</h4>
+                                <p style="color: var(--text-secondary); font-size: 0.85rem; max-width: 500px; margin: 0 auto 1.25rem auto;">
+                                    Describe your custom scenario in the prompt panel or pick an inspiration preset to generate a full JSON simulation blueprint with grading assertions and executable parameters.
+                                </p>
+                                <button type="button" class="btn-secondary btn-sm" onclick="document.getElementById('standalone-ai-prompt').focus()">✍️ Write Prompt</button>
+                            </div>
+
+                            <!-- Generated Simulation Schema Studio Card -->
+                            <div id="standalone-studio-card" class="card hidden" style="border-top: 3px solid var(--accent-cyan);">
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+                                    <div>
+                                        <h4 id="standalone-studio-title" style="color: var(--accent-cyan); font-size: 1.1rem; margin-bottom: 0.25rem;">Generated Lab Title</h4>
+                                        <span id="standalone-studio-sys-badge" class="badge">OS</span>
+                                        <span id="standalone-studio-concept-badge" class="badge badge-accent" style="margin-left: 0.25rem;">Memory Paging</span>
+                                    </div>
+                                    <span class="badge" style="background: rgba(34, 197, 94, 0.15); color: #22c55e; border: 1px solid #22c55e;">✓ Schema Validated</span>
+                                </div>
+
+                                <p id="standalone-studio-desc" style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem;"></p>
+
+                                <div id="standalone-studio-explanation-box" class="card" style="background: rgba(0, 240, 255, 0.05); padding: 0.6rem; margin-bottom: 0.75rem; font-size: 0.8rem; border-left: 2px solid var(--accent-cyan);">
+                                    <strong>💡 AI Design Rationale:</strong> <span id="standalone-studio-explanation-text"></span>
+                                </div>
+
+                                <!-- Schema Component Summary Cards -->
+                                <div class="schema-breakdown-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin-bottom: 0.75rem;">
+                                    <div class="card" style="padding: 0.6rem;">
+                                        <div style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 600; margin-bottom: 0.25rem;">⚙️ CONFIGURATION OVERRIDES</div>
+                                        <div id="standalone-studio-config-tokens" style="font-size: 0.8rem; display: flex; flex-wrap: wrap; gap: 0.3rem;"></div>
+                                    </div>
+                                    <div class="card" style="padding: 0.6rem;">
+                                        <div style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 600; margin-bottom: 0.25rem;">📊 WORKLOAD SCENARIOS</div>
+                                        <div id="standalone-studio-scenarios-tokens" style="font-size: 0.8rem; display: flex; flex-wrap: wrap; gap: 0.3rem;"></div>
+                                    </div>
+                                </div>
+
+                                <!-- Assertions Rules List -->
+                                <div class="card" style="padding: 0.6rem; margin-bottom: 0.75rem;">
+                                    <div style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 600; margin-bottom: 0.4rem;">🎯 AUTOMATED GRADING CRITERIA</div>
+                                    <div id="standalone-studio-assertions-list" style="display: flex; flex-direction: column; gap: 0.3rem;"></div>
+                                </div>
+
+                                <!-- Interactive JSON Schema Code Editor Accordion -->
+                                <div class="json-editor-wrapper" style="margin-bottom: 0.75rem;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                                        <label style="font-size: 0.8rem; font-weight: 600;">Simulation JSON Schema (Editable)</label>
+                                        <div style="display: flex; gap: 0.3rem;">
+                                            <button type="button" class="btn-sm" id="standalone-copy-json-btn" title="Copy to clipboard">📋 Copy</button>
+                                            <button type="button" class="btn-sm" id="standalone-validate-json-btn" title="Validate JSON syntax">🛠️ Validate</button>
+                                            <button type="button" class="btn-sm" id="standalone-format-json-btn" title="Reformat JSON">✨ Format</button>
+                                        </div>
+                                    </div>
+                                    <textarea id="standalone-generated-json-schema" rows="8" spellcheck="false" class="code-editor-textarea"></textarea>
+                                </div>
+
+                                <!-- Action Buttons -->
+                                <div class="btn-group" style="margin-top: 0.75rem; display: flex; gap: 0.5rem;">
+                                    <button type="button" class="btn-secondary" id="standalone-test-simulation-btn" style="flex: 1;">▶ Test Simulation Preview</button>
+                                    <button type="button" class="btn-primary" id="standalone-load-sandbox-btn" style="flex: 1.2;">🔬 Launch in Simulator</button>
+                                </div>
+
+                                <!-- Live Simulation Test Output Drawer -->
+                                <div id="standalone-test-simulation-output" class="card hidden" style="margin-top: 0.75rem; background: rgba(0,0,0,0.4); border: 1px solid var(--border-color);">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                        <h5 style="margin: 0; color: var(--accent-cyan);">Execution Sandbox Verification</h5>
+                                        <span id="standalone-test-status-badge" class="badge">Running</span>
+                                    </div>
+                                    <div id="standalone-test-metrics-grid" style="display: flex; flex-wrap: wrap; gap: 0.4rem; font-size: 0.8rem; margin-bottom: 0.5rem;"></div>
+                                    <div id="standalone-test-assertions-feedback" style="font-size: 0.8rem;"></div>
+                                </div>
+                            </div>
+                        </div>
 
 
                         <!-- Concept Visualizer Output Panel -->
