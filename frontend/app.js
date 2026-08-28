@@ -376,7 +376,12 @@ function initTabs() {
                 document.getElementById("lab-vis").classList.remove("hidden");
                 document.getElementById("tab-title").innerText = "Faculty Labs Sandbox";
                 document.getElementById("tab-subtitle").innerText = "Evaluate and grade your system architectures against faculty assertion benchmarks";
+            } else if (tabId === "ai-sim-tab") {
+                if (document.getElementById("ai-sim-vis")) document.getElementById("ai-sim-vis").classList.remove("hidden");
+                document.getElementById("tab-title").innerText = "AI Simulation Generator Studio";
+                document.getElementById("tab-subtitle").innerText = "Powered by Google Gemini — convert faculty prompts into executable JSON simulation schemas";
             } else if (tabId === "student-content-tab") {
+
                 document.getElementById("tab-title").innerText = "Class Content Desk";
                 document.getElementById("tab-subtitle").innerText = "Access course files and test presets shared by your teacher";
                 loadStudentContent();
@@ -2268,7 +2273,7 @@ window.openVideoModal = openVideoModal;
 let currentAISchema = null;
 
 function initAISimulationStudio() {
-    // Prompt Inspiration Pills
+    // 1. Teacher Panel Prompt Inspiration Pills
     document.querySelectorAll(".ai-prompt-preset-btn").forEach(btn => {
         btn.addEventListener("click", () => {
             const prompt = btn.dataset.prompt;
@@ -2280,17 +2285,64 @@ function initAISimulationStudio() {
         });
     });
 
-    // Generate Button Click
-    const genBtn = document.getElementById("ai-generate-simulation-btn");
-    if (genBtn) {
-        genBtn.addEventListener("click", handleGenerateAISimulation);
+    // 2. Standalone AI Simulation Studio Prompt Inspiration Pills
+    document.querySelectorAll(".standalone-prompt-preset-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const prompt = btn.dataset.prompt;
+            const sys = btn.dataset.sys;
+            const promptEl = document.getElementById("standalone-ai-prompt");
+            const sysEl = document.getElementById("standalone-ai-system");
+            if (promptEl) promptEl.value = prompt;
+            if (sysEl && sys) sysEl.value = sys;
+        });
+    });
+
+    // 3. Generate Button Handlers
+    const teacherGenBtn = document.getElementById("ai-generate-simulation-btn");
+    if (teacherGenBtn) {
+        teacherGenBtn.addEventListener("click", () => handleGenerateAISimulation(false));
     }
 
-    // JSON Editor Actions
-    const copyBtn = document.getElementById("ai-copy-json-btn");
+    const standaloneGenBtn = document.getElementById("standalone-ai-generate-btn");
+    if (standaloneGenBtn) {
+        standaloneGenBtn.addEventListener("click", () => handleGenerateAISimulation(true));
+    }
+
+    // 4. JSON Editor Actions (Teacher Studio)
+    setupJsonEditorActions("ai-copy-json-btn", "ai-format-json-btn", "ai-validate-json-btn", "ai-generated-json-schema", false);
+
+    // 5. JSON Editor Actions (Standalone Studio)
+    setupJsonEditorActions("standalone-copy-json-btn", "standalone-format-json-btn", "standalone-validate-json-btn", "standalone-generated-json-schema", true);
+
+    // 6. Live Test Runner Preview Handlers
+    const teacherTestBtn = document.getElementById("ai-test-simulation-btn");
+    if (teacherTestBtn) {
+        teacherTestBtn.addEventListener("click", () => handleTestSimulationPreview("ai-generated-json-schema", "ai-test-simulation-output", "ai-test-status-badge", "ai-test-metrics-grid", "ai-test-assertions-feedback"));
+    }
+
+    const standaloneTestBtn = document.getElementById("standalone-test-simulation-btn");
+    if (standaloneTestBtn) {
+        standaloneTestBtn.addEventListener("click", () => handleTestSimulationPreview("standalone-generated-json-schema", "standalone-test-simulation-output", "standalone-test-status-badge", "standalone-test-metrics-grid", "standalone-test-assertions-feedback"));
+    }
+
+    // 7. Standalone "Launch in Simulator" Action
+    const launchBtn = document.getElementById("standalone-load-sandbox-btn");
+    if (launchBtn) {
+        launchBtn.addEventListener("click", handleLaunchInSimulator);
+    }
+
+    // 8. Publish to Class
+    const pubBtn = document.getElementById("ai-publish-lab-btn");
+    if (pubBtn) {
+        pubBtn.addEventListener("click", handlePublishAILab);
+    }
+}
+
+function setupJsonEditorActions(copyBtnId, formatBtnId, validateBtnId, textareaId, isStandalone) {
+    const copyBtn = document.getElementById(copyBtnId);
     if (copyBtn) {
         copyBtn.addEventListener("click", () => {
-            const code = document.getElementById("ai-generated-json-schema").value;
+            const code = document.getElementById(textareaId).value;
             if (!code) return;
             navigator.clipboard.writeText(code).then(() => {
                 const orig = copyBtn.innerText;
@@ -2300,10 +2352,10 @@ function initAISimulationStudio() {
         });
     }
 
-    const formatBtn = document.getElementById("ai-format-json-btn");
+    const formatBtn = document.getElementById(formatBtnId);
     if (formatBtn) {
         formatBtn.addEventListener("click", () => {
-            const ta = document.getElementById("ai-generated-json-schema");
+            const ta = document.getElementById(textareaId);
             try {
                 const parsed = JSON.parse(ta.value);
                 ta.value = JSON.stringify(parsed, null, 2);
@@ -2313,22 +2365,22 @@ function initAISimulationStudio() {
         });
     }
 
-    const validateBtn = document.getElementById("ai-validate-json-btn");
+    const validateBtn = document.getElementById(validateBtnId);
     if (validateBtn) {
         validateBtn.addEventListener("click", async () => {
-            const rawJson = document.getElementById("ai-generated-json-schema").value;
+            const rawJson = document.getElementById(textareaId).value;
             try {
-                const res = await fetch(`${API_URL}/schema/validate`, {
+                const res = await fetch(`${API_URL}/simulation/validate`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ raw_json: rawJson })
                 });
                 const data = await res.json();
                 if (data.valid) {
-                    alert("✓ Simulation Schema is strictly valid and verified!");
+                    alert("✓ Simulation Schema is strictly valid and verified by engine!");
                     if (data.schema) {
                         currentAISchema = data.schema;
-                        renderAISimulationPreview(data.schema);
+                        renderAISimulationPreview(data.schema, rawJson, isStandalone);
                     }
                 } else {
                     alert("❌ Schema Validation Error: " + data.message);
@@ -2338,25 +2390,16 @@ function initAISimulationStudio() {
             }
         });
     }
-
-    // Live Test Runner Preview
-    const testBtn = document.getElementById("ai-test-simulation-btn");
-    if (testBtn) {
-        testBtn.addEventListener("click", handleTestSimulationPreview);
-    }
-
-    // Publish to Class
-    const pubBtn = document.getElementById("ai-publish-lab-btn");
-    if (pubBtn) {
-        pubBtn.addEventListener("click", handlePublishAILab);
-    }
 }
 
-async function handleGenerateAISimulation() {
-    const promptInput = document.getElementById("teacher-ai-prompt");
+async function handleGenerateAISimulation(isStandalone = false) {
+    const promptInput = document.getElementById(isStandalone ? "standalone-ai-prompt" : "teacher-ai-prompt");
     const prompt = promptInput ? promptInput.value.trim() : "";
-    const sys = document.getElementById("teacher-ai-system").value;
-    const diff = document.getElementById("teacher-ai-difficulty").value;
+    const sysEl = document.getElementById(isStandalone ? "standalone-ai-system" : "teacher-ai-system");
+    const diffEl = document.getElementById(isStandalone ? "standalone-ai-difficulty" : "teacher-ai-difficulty");
+
+    const sys = sysEl ? sysEl.value : "auto";
+    const diff = diffEl ? diffEl.value : "intermediate";
 
     if (!prompt) {
         alert("Please provide instructions or requirements for your simulation lab.");
@@ -2364,21 +2407,24 @@ async function handleGenerateAISimulation() {
         return;
     }
 
-    const loadingDiv = document.getElementById("ai-sim-loading");
-    const studioCard = document.getElementById("ai-simulation-studio-card");
-    const genBtn = document.getElementById("ai-generate-simulation-btn");
+    const loadingDiv = document.getElementById(isStandalone ? "standalone-ai-loading" : "ai-sim-loading");
+    const genBtn = document.getElementById(isStandalone ? "standalone-ai-generate-btn" : "ai-generate-simulation-btn");
+    const emptyState = document.getElementById("standalone-studio-empty");
+    const studioCard = document.getElementById(isStandalone ? "standalone-studio-card" : "ai-simulation-studio-card");
 
     if (loadingDiv) loadingDiv.classList.remove("hidden");
     if (genBtn) genBtn.disabled = true;
 
     try {
-        writeConsole(`Prompting AI Simulation Architect: "${prompt.slice(0, 60)}..."`);
-        const res = await fetch(`${API_URL}/schema/generate-ai-simulation`, {
+        writeConsole(`Prompting Gemini Simulation Architect: "${prompt.slice(0, 60)}..."`);
+        const res = await fetch(`${API_URL}/simulation/generate`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 prompt: prompt,
+                faculty_prompt: prompt,
                 target_system: sys,
+                domain: sys,
                 difficulty: diff
             })
         });
@@ -2391,10 +2437,19 @@ async function handleGenerateAISimulation() {
         const data = await res.json();
         currentAISchema = data.simulation_schema;
 
-        renderAISimulationPreview(currentAISchema, data.raw_json);
+        // Render to both panels
+        renderAISimulationPreview(currentAISchema, data.raw_json, isStandalone);
+        
+        if (emptyState) emptyState.classList.add("hidden");
         if (studioCard) {
             studioCard.classList.remove("hidden");
             studioCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+
+        const statusBadge = document.getElementById("standalone-studio-status-badge");
+        if (statusBadge) {
+            statusBadge.innerText = `${currentAISchema.system_type} Blueprint Ready`;
+            statusBadge.className = "badge badge-active";
         }
 
         writeConsole(`AI Simulation Schema Generated: "${currentAISchema.title}" (${currentAISchema.system_type}) with ${currentAISchema.assertions.length} assertions.`);
@@ -2407,75 +2462,94 @@ async function handleGenerateAISimulation() {
     }
 }
 
-function renderAISimulationPreview(schema, rawJson) {
-    document.getElementById("ai-studio-title").innerText = schema.title || "Simulation Lab";
-    
-    const sysBadge = document.getElementById("ai-studio-sys-badge");
-    sysBadge.innerText = schema.system_type;
-    sysBadge.className = `badge badge-${schema.system_type.toLowerCase()}`;
+function renderAISimulationPreview(schema, rawJson, isStandalone = false) {
+    const prefixes = isStandalone ? ["standalone-studio-", "ai-studio-"] : ["ai-studio-", "standalone-studio-"];
 
-    const conceptBadge = document.getElementById("ai-studio-concept-badge");
-    conceptBadge.innerText = schema.concept_focus || "Systems Simulation";
+    prefixes.forEach(p => {
+        const titleEl = document.getElementById(`${p}title`);
+        if (titleEl) titleEl.innerText = schema.title || "Simulation Lab";
 
-    document.getElementById("ai-studio-desc").innerText = schema.description || "";
-    document.getElementById("ai-studio-explanation-text").innerText = schema.explanation || "Balanced simulation workload generated according to prompt parameters.";
-
-    // Render Config tokens
-    const configDiv = document.getElementById("ai-studio-config-tokens");
-    configDiv.innerHTML = "";
-    if (schema.configuration) {
-        for (const [k, v] of Object.entries(schema.configuration)) {
-            const span = document.createElement("span");
-            span.className = "badge";
-            span.style.background = "rgba(255, 255, 255, 0.05)";
-            span.innerText = `${k.replace(/_/g, " ")}: ${v}`;
-            configDiv.appendChild(span);
+        const sysBadge = document.getElementById(`${p}sys-badge`);
+        if (sysBadge) {
+            sysBadge.innerText = schema.system_type;
+            sysBadge.className = `badge badge-${(schema.system_type || "OS").toLowerCase()}`;
         }
-    }
 
-    // Render Scenarios tokens
-    const scenDiv = document.getElementById("ai-studio-scenarios-tokens");
-    scenDiv.innerHTML = "";
-    if (schema.scenarios) {
-        schema.scenarios.forEach((s, idx) => {
-            const span = document.createElement("span");
-            span.className = "badge badge-accent";
-            if (schema.system_type === "OS") {
-                span.innerText = `${s.process_id || `P${idx+1}`} (Burst: ${s.burst_time}ms, Pages: [${(s.memory_pages || []).join(",")}])`;
-            } else {
-                span.innerText = `${s.query_type || "Point"} Query (${(s.num_records || 100000).toLocaleString()} rows)`;
+        const conceptBadge = document.getElementById(`${p}concept-badge`);
+        if (conceptBadge) {
+            conceptBadge.innerText = schema.concept_focus || "Systems Simulation";
+        }
+
+        const descEl = document.getElementById(`${p}desc`);
+        if (descEl) descEl.innerText = schema.description || "";
+
+        const expEl = document.getElementById(`${p}explanation-text`);
+        if (expEl) expEl.innerText = schema.explanation || "Balanced simulation workload generated according to prompt requirements.";
+
+        // Render Config tokens
+        const configDiv = document.getElementById(`${p}config-tokens`);
+        if (configDiv) {
+            configDiv.innerHTML = "";
+            if (schema.configuration) {
+                for (const [k, v] of Object.entries(schema.configuration)) {
+                    const span = document.createElement("span");
+                    span.className = "badge";
+                    span.style.background = "rgba(255, 255, 255, 0.05)";
+                    span.innerText = `${k.replace(/_/g, " ")}: ${v}`;
+                    configDiv.appendChild(span);
+                }
             }
-            scenDiv.appendChild(span);
-        });
-    }
+        }
 
-    // Render Assertions List
-    const assertList = document.getElementById("ai-studio-assertions-list");
-    assertList.innerHTML = "";
-    if (schema.assertions) {
-        schema.assertions.forEach((a, idx) => {
-            const item = document.createElement("div");
-            item.className = "assertion-item-card";
-            item.innerHTML = `
-                <div>
-                    <span class="assertion-rule">${a.metric} ${a.operator} ${a.value}</span>
-                    <span style="color: var(--text-secondary); margin-left: 0.4rem; font-size: 0.75rem;">${a.description || ""}</span>
-                </div>
-                <span class="badge" style="background: rgba(0, 240, 255, 0.1); color: var(--accent-cyan);">Rule #${idx+1}</span>
-            `;
-            assertList.appendChild(item);
-        });
-    }
+        // Render Scenarios tokens
+        const scenDiv = document.getElementById(`${p}scenarios-tokens`);
+        if (scenDiv) {
+            scenDiv.innerHTML = "";
+            if (schema.scenarios) {
+                schema.scenarios.forEach((s, idx) => {
+                    const span = document.createElement("span");
+                    span.className = "badge badge-accent";
+                    if (schema.system_type === "OS") {
+                        span.innerText = `${s.process_id || `P${idx+1}`} (Burst: ${s.burst_time}ms, Pages: [${(s.memory_pages || []).join(",")}])`;
+                    } else {
+                        span.innerText = `${s.query_type || "Point"} Query (${(s.num_records || 100000).toLocaleString()} rows)`;
+                    }
+                    scenDiv.appendChild(span);
+                });
+            }
+        }
+
+        // Render Assertions List
+        const assertList = document.getElementById(`${p}assertions-list`);
+        if (assertList) {
+            assertList.innerHTML = "";
+            if (schema.assertions) {
+                schema.assertions.forEach((a, idx) => {
+                    const item = document.createElement("div");
+                    item.className = "assertion-item-card";
+                    item.innerHTML = `
+                        <div>
+                            <span class="assertion-rule">${a.metric} ${a.operator} ${a.value}</span>
+                            <span style="color: var(--text-secondary); margin-left: 0.4rem; font-size: 0.75rem;">${a.description || ""}</span>
+                        </div>
+                        <span class="badge" style="background: rgba(0, 240, 255, 0.1); color: var(--accent-cyan);">Rule #${idx+1}</span>
+                    `;
+                    assertList.appendChild(item);
+                });
+            }
+        }
+    });
 
     // Set JSON Editor Text
-    const editor = document.getElementById("ai-generated-json-schema");
-    if (editor) {
-        editor.value = rawJson || JSON.stringify(schema, null, 2);
-    }
+    const formatted = rawJson || JSON.stringify(schema, null, 2);
+    const teacherEditor = document.getElementById("ai-generated-json-schema");
+    if (teacherEditor) teacherEditor.value = formatted;
+    const standaloneEditor = document.getElementById("standalone-generated-json-schema");
+    if (standaloneEditor) standaloneEditor.value = formatted;
 }
 
-async function handleTestSimulationPreview() {
-    const rawJson = document.getElementById("ai-generated-json-schema").value;
+async function handleTestSimulationPreview(textareaId, outputDivId, statusBadgeId, metricsGridId, feedbackDivId) {
+    const rawJson = document.getElementById(textareaId).value;
     let schema;
     try {
         schema = JSON.parse(rawJson);
@@ -2484,19 +2558,21 @@ async function handleTestSimulationPreview() {
         return;
     }
 
-    const outputDiv = document.getElementById("ai-test-simulation-output");
-    const statusBadge = document.getElementById("ai-test-status-badge");
-    const metricsGrid = document.getElementById("ai-test-metrics-grid");
-    const feedbackDiv = document.getElementById("ai-test-assertions-feedback");
+    const outputDiv = document.getElementById(outputDivId);
+    const statusBadge = document.getElementById(statusBadgeId);
+    const metricsGrid = document.getElementById(metricsGridId);
+    const feedbackDiv = document.getElementById(feedbackDivId);
 
-    outputDiv.classList.remove("hidden");
-    statusBadge.innerText = "Running Sandbox...";
-    statusBadge.className = "badge badge-accent";
-    metricsGrid.innerHTML = "Simulating execution on MENTORVEE engine...";
-    feedbackDiv.innerHTML = "";
+    if (outputDiv) outputDiv.classList.remove("hidden");
+    if (statusBadge) {
+        statusBadge.innerText = "Running Sandbox...";
+        statusBadge.className = "badge badge-accent";
+    }
+    if (metricsGrid) metricsGrid.innerHTML = "Simulating execution on MENTORVEE engine...";
+    if (feedbackDiv) feedbackDiv.innerHTML = "";
 
     try {
-        const res = await fetch(`${API_URL}/schema/validate-submission`, {
+        const res = await fetch(`${API_URL}/simulation/validate-submission`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -2509,35 +2585,94 @@ async function handleTestSimulationPreview() {
         if (!res.ok) throw new Error("Validation engine request failed");
         const data = await res.json();
 
-        statusBadge.innerText = data.passed ? "✓ Assertions Met" : "⚠️ Criteria Missed";
-        statusBadge.className = `badge ${data.passed ? "badge-active" : "badge-danger"}`;
-
-        metricsGrid.innerHTML = "";
-        for (const [k, v] of Object.entries(data.metrics)) {
-            const span = document.createElement("span");
-            span.className = "badge";
-            span.style.background = "rgba(255,255,255,0.06)";
-            span.innerText = `${k.replace(/_/g, " ")}: ${typeof v === "number" ? v.toFixed(2) : v}`;
-            metricsGrid.appendChild(span);
+        if (statusBadge) {
+            statusBadge.innerText = data.passed ? "✓ Assertions Met" : "⚠️ Criteria Missed";
+            statusBadge.className = `badge ${data.passed ? "badge-active" : "badge-danger"}`;
         }
 
-        let fbHtml = `<div style="font-weight: 600; margin-bottom: 0.4rem; color: ${data.passed ? "#4ade80" : "#f87171"};">${data.feedback}</div>`;
-        fbHtml += `<ul style="list-style: none; padding-left: 0; display: flex; flex-direction: column; gap: 0.3rem;">`;
-        data.assertions_results.forEach(ar => {
-            fbHtml += `
-                <li style="font-size: 0.78rem; display: flex; justify-content: space-between; padding: 0.25rem 0.5rem; background: rgba(255,255,255,0.02); border-radius: 4px;">
-                    <span>${ar.passed ? "✅" : "❌"} <strong>${ar.metric}</strong> (${ar.description || `${ar.operator} ${ar.target_value}`})</span>
-                    <span style="font-family: monospace; color: ${ar.passed ? "#4ade80" : "#f87171"};">Actual: ${ar.actual_value}</span>
-                </li>
-            `;
-        });
-        fbHtml += `</ul>`;
-        feedbackDiv.innerHTML = fbHtml;
+        if (metricsGrid) {
+            metricsGrid.innerHTML = "";
+            for (const [k, v] of Object.entries(data.metrics)) {
+                const span = document.createElement("span");
+                span.className = "badge";
+                span.style.background = "rgba(255,255,255,0.06)";
+                span.innerText = `${k.replace(/_/g, " ")}: ${typeof v === "number" ? v.toFixed(2) : v}`;
+                metricsGrid.appendChild(span);
+            }
+        }
+
+        if (feedbackDiv) {
+            let fbHtml = `<div style="font-weight: 600; margin-bottom: 0.4rem; color: ${data.passed ? "#4ade80" : "#f87171"};">${data.feedback}</div>`;
+            fbHtml += `<ul style="list-style: none; padding-left: 0; display: flex; flex-direction: column; gap: 0.3rem;">`;
+            data.assertions_results.forEach(ar => {
+                fbHtml += `
+                    <li style="font-size: 0.78rem; display: flex; justify-content: space-between; padding: 0.25rem 0.5rem; background: rgba(255,255,255,0.02); border-radius: 4px;">
+                        <span>${ar.passed ? "✅" : "❌"} <strong>${ar.metric}</strong> (${ar.description || `${ar.operator} ${ar.target_value}`})</span>
+                        <span style="font-family: monospace; color: ${ar.passed ? "#4ade80" : "#f87171"};">Actual: ${ar.actual_value}</span>
+                    </li>
+                `;
+            });
+            fbHtml += `</ul>`;
+            feedbackDiv.innerHTML = fbHtml;
+        }
 
     } catch (e) {
-        statusBadge.innerText = "Error";
-        statusBadge.className = "badge badge-danger";
-        metricsGrid.innerHTML = `<span style="color:var(--accent-red);">${e.message}</span>`;
+        if (statusBadge) {
+            statusBadge.innerText = "Error";
+            statusBadge.className = "badge badge-danger";
+        }
+        if (metricsGrid) metricsGrid.innerHTML = `<span style="color:var(--accent-red);">${e.message}</span>`;
+    }
+}
+
+function handleLaunchInSimulator() {
+    if (!currentAISchema) {
+        alert("Please generate a simulation first.");
+        return;
+    }
+
+    const sys = (currentAISchema.system_type || "OS").toUpperCase();
+    if (sys === "OS") {
+        const osNav = document.querySelector('.nav-btn[data-tab="os-tab"]');
+        if (osNav) osNav.click();
+
+        // Populate OS configuration
+        if (currentAISchema.configuration) {
+            const ramEl = document.getElementById("ram-size");
+            const algoEl = document.getElementById("scheduler-algo");
+            const policyEl = document.getElementById("page-policy");
+            const qEl = document.getElementById("time-quantum");
+
+            if (ramEl && currentAISchema.configuration.ram_size_mb) ramEl.value = currentAISchema.configuration.ram_size_mb;
+            if (algoEl && currentAISchema.configuration.algorithm) algoEl.value = currentAISchema.configuration.algorithm;
+            if (policyEl && currentAISchema.configuration.page_replacement_policy) policyEl.value = currentAISchema.configuration.page_replacement_policy;
+            if (qEl && currentAISchema.configuration.quantum) qEl.value = currentAISchema.configuration.quantum;
+        }
+
+        // Run OS simulation
+        const runOsBtn = document.getElementById("run-os-btn");
+        if (runOsBtn) runOsBtn.click();
+        writeConsole(`Loaded AI Simulation '${currentAISchema.title}' into OS Simulator!`);
+    } else {
+        const dbmsNav = document.querySelector('.nav-btn[data-tab="dbms-tab"]');
+        if (dbmsNav) dbmsNav.click();
+
+        // Populate DBMS configuration
+        if (currentAISchema.configuration) {
+            const rowsEl = document.getElementById("table-rows");
+            const storageEl = document.getElementById("storage-type");
+            const bufferEl = document.getElementById("buffer-pool-size");
+
+            if (rowsEl && currentAISchema.scenarios && currentAISchema.scenarios[0] && currentAISchema.scenarios[0].num_records) {
+                rowsEl.value = currentAISchema.scenarios[0].num_records;
+            }
+            if (storageEl && currentAISchema.configuration.storage_type) storageEl.value = currentAISchema.configuration.storage_type;
+            if (bufferEl && currentAISchema.configuration.buffer_pool_size) bufferEl.value = currentAISchema.configuration.buffer_pool_size;
+        }
+
+        const runDbmsBtn = document.getElementById("run-dbms-btn");
+        if (runDbmsBtn) runDbmsBtn.click();
+        writeConsole(`Loaded AI Simulation '${currentAISchema.title}' into DBMS Simulator!`);
     }
 }
 
@@ -2555,7 +2690,7 @@ async function handlePublishAILab() {
     }
 
     try {
-        const res = await fetch(`${API_URL}/schema/publish-lab`, {
+        const res = await fetch(`${API_URL}/simulation/publish-lab`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -2578,6 +2713,7 @@ async function handlePublishAILab() {
         alert("Publishing failed: " + e.message);
     }
 }
+
 
 // ----------------------------------------------------
 // Faculty Labs Preset Evaluation & Grading Logic

@@ -16,25 +16,86 @@ class AISimulationGeneratorService:
     @classmethod
     def generate_from_prompt(cls, request: GenerateSimulationRequest) -> GenerateSimulationResponse:
         """Main entry point: generates a structured simulation schema from faculty natural text."""
-        prompt = request.prompt.strip()
-        target_sys = request.target_system or "auto"
+        prompt = (request.prompt or request.faculty_prompt or "").strip()
+        target_sys = request.target_system or request.domain or "auto"
         difficulty = request.difficulty or "intermediate"
 
         if not prompt:
             raise ValueError("Prompt text cannot be empty. Please provide instructions or requirements for the simulation.")
 
-        # 1. Attempt LLM generation if API keys are available
-        if settings.GEMINI_API_KEY or settings.OPENAI_API_KEY:
-            llm_result = cls._generate_llm(prompt, target_sys, difficulty)
-            if llm_result:
-                return llm_result
+        # 1. Attempt Google Gemini LLM generation if API key is available
+        if settings.GEMINI_API_KEY:
+            gemini_result = cls._generate_gemini_sdk(prompt, target_sys, difficulty)
+            if gemini_result:
+                return gemini_result
 
-        # 2. Deterministic / NLP Heuristics Fallback Engine
+        # 2. Attempt OpenAI fallback if available
+        if settings.OPENAI_API_KEY:
+            openai_result = cls._generate_openai(prompt, target_sys, difficulty)
+            if openai_result:
+                return openai_result
+
+        # 3. Deterministic / NLP Heuristics Fallback Engine
         return cls._generate_deterministic(prompt, target_sys, difficulty)
 
     @classmethod
-    def _generate_llm(cls, prompt: str, target_sys: str, difficulty: str) -> Optional[GenerateSimulationResponse]:
-        """Calls Gemini or OpenAI to transform faculty natural language into simulation JSON schema."""
+    def _generate_gemini_sdk(cls, prompt: str, target_sys: str, difficulty: str) -> Optional[GenerateSimulationResponse]:
+        """Calls Google Gemini using the official google-genai SDK with structured JSON output."""
+        try:
+            from google import genai
+            from google.genai import types
+
+            client = genai.Client(api_key=settings.GEMINI_API_KEY)
+            model_name = settings.GEMINI_MODEL or "gemini-2.5-flash"
+
+            system_instruction = (
+                "You are an expert Computer Science Professor and Simulation Engineer for MENTORVEE. "
+                "Convert the faculty member's natural language simulation prompt into a strictly valid, executable JSON Simulation Schema. "
+                "The schema must specify system_type ('OS' or 'DBMS'), title, description, concept_focus, configuration dict, scenarios list, assertions list, and explanation string.\n\n"
+                "Rules for OS Simulations:\n"
+                "- system_type: 'OS'\n"
+                "- configuration: ram_size_mb (integer between 4 and 128), page_replacement_policy ('LRU' or 'FIFO'), algorithm ('Round Robin', 'FCFS', 'Priority', 'MLFQ'), quantum (float >= 0.5), context_switch_overhead (float >= 0.0), page_size_kb (4)\n"
+                "- scenarios: list of process objects [{\"process_id\": \"P1\", \"burst_time\": float > 0, \"arrival_time\": float >= 0, \"priority\": int >= 1, \"memory_pages\": [1,2,3...]}]\n"
+                "- assertions: list of grading rules [{\"metric\": \"page_fault_rate\"|\"is_thrashing\"|\"average_waiting_time\"|\"average_turnaround_time\", \"operator\": \"<=\"|\">=\"|\"==\"|\"<\"|\">\", \"value\": number or bool, \"description\": str}]\n\n"
+                "Rules for DBMS Simulations:\n"
+                "- system_type: 'DBMS'\n"
+                "- configuration: storage_type ('SSD' or 'HDD'), block_size_bytes (4096), buffer_pool_size (10 to 500), pool_size (5 to 50), index_type ('B-Tree' or 'Linear Scan')\n"
+                "- scenarios: list of query objects [{\"query_type\": \"point\"|\"range\"|\"scan\", \"num_records\": int >= 1000, \"range_fraction\": float 0.01 to 0.5, \"concurrent_requests\": int >= 1}]\n"
+                "- assertions: list of grading rules [{\"metric\": \"estimated_latency_ms\"|\"disk_iops\"|\"cache_hit_ratio\"|\"cpu_utilization\"|\"btree_height\"|\"node_hops\", \"operator\": \"<=\"|\">=\"|\"==\"|\"<\"|\">\", \"value\": number, \"description\": str}]\n"
+            )
+
+            user_content = f"Target System Constraint: {target_sys}\nDifficulty Level: {difficulty}\n\nFaculty Prompt:\n{prompt}"
+
+            config = types.GenerateContentConfig(
+                temperature=0.2,
+                response_mime_type="application/json",
+                response_schema=FacultyModuleSchema,
+                system_instruction=system_instruction
+            )
+
+            response = client.models.generate_content(
+                model=model_name,
+                contents=user_content,
+                config=config
+            )
+
+            text_resp = response.text if hasattr(response, "text") and response.text else None
+            if not text_resp and hasattr(response, "candidates") and response.candidates:
+                candidate = response.candidates[0]
+                if candidate.content and candidate.content.parts:
+                    text_resp = candidate.content.parts[0].text
+
+            if text_resp:
+                return cls._parse_and_validate_json_response(text_resp, prompt)
+        except Exception as e:
+            # Fallback on any SDK/network/parsing error
+            pass
+
+        return None
+
+    @classmethod
+    def _generate_openai(cls, prompt: str, target_sys: str, difficulty: str) -> Optional[GenerateSimulationResponse]:
+        """Calls OpenAI fallback to transform faculty natural language into simulation JSON schema."""
         system_instruction = f"""
         You are an expert Computer Science Professor and Simulation Engineer for MENTORVEE.
         Convert the following faculty prompt into a strictly valid JSON Simulation Schema.
@@ -69,38 +130,24 @@ class AISimulationGeneratorService:
         Return ONLY a JSON object matching this schema. No markdown code blocks, no other text.
         """
 
-        if settings.GEMINI_API_KEY:
-            try:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={settings.GEMINI_API_KEY}"
-                payload = {
-                    "contents": [{"parts": [{"text": system_instruction}]}],
-                    "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"}
-                }
-                resp = httpx.post(url, json=payload, timeout=15.0)
-                if resp.status_code == 200:
-                    text_resp = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-                    return cls._parse_and_validate_json_response(text_resp, prompt)
-            except Exception:
-                pass
-
-        if settings.OPENAI_API_KEY:
-            try:
-                url = "https://api.openai.com/v1/chat/completions"
-                headers = {"Authorization": f"Bearer {settings.OPENAI_API_KEY}"}
-                payload = {
-                    "model": "gpt-4o-mini",
-                    "messages": [{"role": "user", "content": system_instruction}],
-                    "temperature": 0.2,
-                    "response_format": {"type": "json_object"}
-                }
-                resp = httpx.post(url, json=payload, headers=headers, timeout=15.0)
-                if resp.status_code == 200:
-                    text_resp = resp.json()["choices"][0]["message"]["content"]
-                    return cls._parse_and_validate_json_response(text_resp, prompt)
-            except Exception:
-                pass
+        try:
+            url = "https://api.openai.com/v1/chat/completions"
+            headers = {"Authorization": f"Bearer {settings.OPENAI_API_KEY}"}
+            payload = {
+                "model": "gpt-4o-mini",
+                "messages": [{"role": "user", "content": system_instruction}],
+                "temperature": 0.2,
+                "response_format": {"type": "json_object"}
+            }
+            resp = httpx.post(url, json=payload, headers=headers, timeout=15.0)
+            if resp.status_code == 200:
+                text_resp = resp.json()["choices"][0]["message"]["content"]
+                return cls._parse_and_validate_json_response(text_resp, prompt)
+        except Exception:
+            pass
 
         return None
+
 
     @classmethod
     def _parse_and_validate_json_response(cls, json_text: str, original_prompt: str) -> Optional[GenerateSimulationResponse]:

@@ -71,6 +71,7 @@ app.include_router(endpoints_auth.router, prefix=f"{settings.API_V1_STR}/auth", 
 app.include_router(endpoints_admin.router, prefix=f"{settings.API_V1_STR}/admin", tags=["Administration"])
 app.include_router(endpoints_content.router, prefix=f"{settings.API_V1_STR}/content", tags=["Class Content"])
 app.include_router(endpoints_schema.router, prefix=f"{settings.API_V1_STR}/schema", tags=["Faculty Engine"])
+app.include_router(endpoints_schema.router, prefix=f"{settings.API_V1_STR}/simulation", tags=["AI Simulation Engine"])
 app.include_router(endpoints_os.router, prefix=f"{settings.API_V1_STR}/os", tags=["OS Simulator"])
 app.include_router(endpoints_dbms.router, prefix=f"{settings.API_V1_STR}/dbms", tags=["DBMS Simulator"])
 

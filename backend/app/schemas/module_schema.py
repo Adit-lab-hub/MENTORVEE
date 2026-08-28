@@ -1,8 +1,8 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Dict, List, Any, Optional
 
 class Assertion(BaseModel):
-    metric: str = Field(..., description="Target metric name (e.g. page_fault_rate, is_thrashing, average_waiting_time, estimated_latency_ms, cache_hit_ratio)")
+    metric: str = Field(..., description="Target metric name (e.g. page_fault_rate, is_thrashing, average_waiting_time, estimated_latency_ms, cache_hit_ratio, disk_iops, node_hops, btree_height)")
     operator: str = Field(..., description="Comparison operator (<=, >=, ==, <, >)")
     value: Any = Field(..., description="Expected threshold value (float, int, or boolean)")
     description: Optional[str] = Field("", description="Human readable description of grading criteria")
@@ -21,7 +21,7 @@ class DBMSSimulationScenario(BaseModel):
     concurrent_requests: int = Field(1, description="Number of concurrent query transactions")
 
 class FacultyModuleSchema(BaseModel):
-    system_type: str = Field(..., description="OS or DBMS")
+    system_type: str = Field(..., description="System domain: OS or DBMS")
     title: str = Field(..., description="Title of the lab simulation module")
     description: str = Field("", description="Detailed instructions and scenario context for students")
     concept_focus: Optional[str] = Field("", description="Core concept targeted (e.g. LRU Thrashing, B-Tree Indexing)")
@@ -40,9 +40,33 @@ class FacultyModuleSchema(BaseModel):
     explanation: Optional[str] = Field("", description="AI commentary explaining how this schema fulfills the prompt")
 
 class GenerateSimulationRequest(BaseModel):
-    prompt: str = Field(..., description="Faculty natural language description of simulation requirements")
-    target_system: Optional[str] = Field("auto", description="Target system: auto, OS, or DBMS")
+    prompt: Optional[str] = Field(None, description="Faculty natural language description of simulation requirements")
+    faculty_prompt: Optional[str] = Field(None, description="Alias for prompt")
+    target_system: Optional[str] = Field(None, description="Target system: auto, OS, or DBMS")
+    domain: Optional[str] = Field(None, description="Alias for target_system")
     difficulty: Optional[str] = Field("intermediate", description="Difficulty level: beginner, intermediate, advanced")
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Normalize prompt
+            prompt_val = data.get("prompt") or data.get("faculty_prompt")
+            if prompt_val is not None:
+                data["prompt"] = str(prompt_val).strip()
+                data["faculty_prompt"] = str(prompt_val).strip()
+            else:
+                data["prompt"] = ""
+                data["faculty_prompt"] = ""
+
+            # Normalize target_system / domain
+            sys_val = data.get("target_system") or data.get("domain") or "auto"
+            data["target_system"] = str(sys_val).strip()
+            data["domain"] = str(sys_val).strip()
+
+            if not data.get("difficulty"):
+                data["difficulty"] = "intermediate"
+        return data
 
 class GenerateSimulationResponse(BaseModel):
     success: bool = True
@@ -51,6 +75,7 @@ class GenerateSimulationResponse(BaseModel):
     summary: str
     validation_status: str = "valid"
     recommended_assertions_explanation: str = ""
+
 
 class LabValidationSubmission(BaseModel):
     module_id: Optional[str] = ""

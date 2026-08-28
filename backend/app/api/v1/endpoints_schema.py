@@ -20,6 +20,7 @@ from app.engines.dbms_engine.cost_model import DBMSSimulationCostModel
 
 router = APIRouter()
 
+@router.post("/generate", response_model=GenerateSimulationResponse)
 @router.post("/generate-ai-simulation", response_model=GenerateSimulationResponse)
 def generate_ai_simulation(
     request: GenerateSimulationRequest
@@ -32,6 +33,7 @@ def generate_ai_simulation(
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI Simulation Generation Failed: {str(e)}")
+
 
 @router.post("/validate")
 def validate_simulation_schema(payload: dict = Body(...)):
